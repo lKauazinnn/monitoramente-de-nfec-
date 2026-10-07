@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Ban, CircleAlert, KeyRound, LoaderCircle, MailPlus, RefreshCw, RotateCcw, Search, Shield, ShieldOff, UserPlus, Users, UserCheck, X } from 'lucide-react'
+import { Ban, Check, CircleAlert, KeyRound, LoaderCircle, MailPlus, RefreshCw, RotateCcw, Search, Shield, ShieldOff, Store, UserPlus, Users, UserCheck, X } from 'lucide-react'
+import type { Loja } from '../lib/data'
 import { apiAdmin } from '../lib/remote'
-import { nf } from '../lib/format'
+import { fmtCnpj, nf, nomeAuto } from '../lib/format'
 import { useToast } from './Toast'
 import { Badge, Button, Card, Empty, Kpi, Segmented, Select, Skeleton, cx } from './ui'
 
@@ -29,7 +30,7 @@ function status(u: Usuario): [string, 'ok' | 'warn' | 'neutral' | 'accent'] {
   return ['Ativo', 'ok']
 }
 
-export function Admin({ meuId }: { meuId: string }) {
+export function Admin({ meuId, lojas, onLojas }: { meuId: string; lojas: Loja[]; onLojas: () => Promise<unknown> }) {
   const toast = useToast()
   const [lista, setLista] = useState<Usuario[] | null>(null)
   const [erro, setErro] = useState('')
@@ -143,6 +144,7 @@ export function Admin({ meuId }: { meuId: string }) {
           {!filtrada.length && <p className="py-12 text-center text-sm text-muted">Nenhum usuário encontrado.</p>}
         </div>
       </Card>
+      <LojasCard lojas={lojas} onLojas={onLojas} />
       {novo && <NovoUsuario onClose={() => setNovo(false)} onCriado={() => { setNovo(false); carregar() }} />}
     </div>
   )
@@ -208,5 +210,52 @@ function NovoUsuario({ onClose, onCriado }: { onClose: () => void; onCriado: () 
       </form>
     </>,
     document.body,
+  )
+}
+
+function LojasCard({ lojas, onLojas }: { lojas: Loja[]; onLojas: () => Promise<unknown> }) {
+  const toast = useToast()
+  const [ed, setEd] = useState<Record<string, string>>({})
+  const [salvando, setSalvando] = useState<string | null>(null)
+
+  async function salvar(l: Loja) {
+    setSalvando(l.cnpj)
+    try {
+      await apiAdmin({ acao: 'apelido', cnpj: l.cnpj, apelido: ed[l.cnpj] ?? l.apelido })
+      await onLojas()
+      setEd(e => { const n = { ...e }; delete n[l.cnpj]; return n })
+      toast('Nome da loja atualizado.', { tone: 'ok' })
+    } catch (e) { toast((e as Error).message, { tone: 'erro' }) }
+    setSalvando(null)
+  }
+
+  return (
+    <Card>
+      <div className="px-5 pt-5 pb-4">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight"><Store className="size-4 text-muted" />Lojas</h2>
+        <p className="text-xs text-muted">Nome que aparece no painel para cada unidade. Em branco, usa "Caju + bairro" do endereço da nota.</p>
+      </div>
+      <ul className="border-t border-line">
+        {lojas.map(l => {
+          const valor = ed[l.cnpj] ?? l.apelido, mudou = valor.trim() !== l.apelido
+          return (
+            <li key={l.cnpj} className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3 last:border-0">
+              <div className="min-w-0 flex-1 basis-64">
+                <div className="truncate text-sm font-medium">{l.loja} <span className="font-mono text-xs font-normal text-subtle">{fmtCnpj(l.cnpj)}</span></div>
+                <div className="truncate text-xs text-muted">{l.end}</div>
+              </div>
+              <form className="flex w-full gap-2 sm:w-auto" onSubmit={e => { e.preventDefault(); if (mudou) salvar(l) }}>
+                <input value={valor} maxLength={60} onChange={e => setEd({ ...ed, [l.cnpj]: e.target.value })} placeholder={nomeAuto(l.loja, l.end)}
+                  aria-label={`Nome de exibição de ${l.loja}`}
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-line bg-surface-2 px-3 text-sm outline-none placeholder:text-subtle focus:border-accent focus:bg-surface sm:w-64" />
+                <Button type="submit" variant={mudou ? 'primary' : 'secondary'} disabled={!mudou || salvando === l.cnpj}>
+                  {salvando === l.cnpj ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}Salvar
+                </Button>
+              </form>
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
   )
 }

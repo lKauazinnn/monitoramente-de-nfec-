@@ -1,12 +1,14 @@
 import { DB, xmlDa } from './db'
-import { mesRemoto, remoto, resumoRemoto, xmlRemoto } from './remote'
+import { mesRemoto, remoto, resumoRemoto, sb, xmlRemoto } from './remote'
+import { nomeAuto } from './format'
 
 // Formato de dados/<cnpj>/<mes>.js (gerado pelo Processar.ps1 e pela importação no navegador)
 // nota: [nNF, dhEmi, vNF, vDesc, vICMS, [[tPag, vPag]], infCpl, [[iProd, qCom, vProd, vDesc]], chave]
 export type RawNote = [number, string, number, number, number, [string, number][], string, [number, number, number, number][], string]
 export interface RawMes { cnpj: string; mes: string; loja: string; end: string; lacunas: number; prods: [string, string][]; notes: RawNote[] }
 export interface LojaMes { mes: string; notas: number; total: number }
-export interface Loja { cnpj: string; loja: string; end: string; meses: LojaMes[] }
+// loja = nome fiscal (xFant da nota); nome = como aparece no painel (apelido do admin ou Caju + bairro)
+export interface Loja { cnpj: string; loja: string; nome: string; apelido: string; end: string; meses: LojaMes[] }
 export interface Item { p: number; q: number; v: number; d: number; g: boolean }
 export interface Pay { c: string; v: number }
 export interface Note {
@@ -17,13 +19,13 @@ export interface Mes extends Omit<RawMes, 'notes'> { notes: Note[] }
 export interface Resumo extends LojaMes { cnpj: string; loja: string; end: string }
 
 declare global {
-  interface Window { NFCE_LOJAS?: (d: { gerado: string; lojas: Loja[] }) => void; NFCE_LOAD?: (d: RawMes) => void }
+  interface Window { NFCE_LOJAS?: (d: { gerado: string; lojas: Pick<Loja, 'cnpj' | 'loja' | 'end' | 'meses'>[] }) => void; NFCE_LOAD?: (d: RawMes) => void }
 }
 
 export const CUT = 5 // dia operacional vira às 05h
 const isGorjeta = (nome?: string) => /gorjeta|taxa de servi|servi[cç]o 10/i.test(nome || '')
 
-let STATIC: Loja[] = []
+let STATIC: Pick<Loja, 'cnpj' | 'loja' | 'end' | 'meses'>[] = []
 let gerado = ''
 const esperando: Record<string, (d: RawMes) => void> = {}
 window.NFCE_LOAD = d => { const k = d.cnpj + '|' + d.mes, r = esperando[k]; delete esperando[k]; r?.(d) }
@@ -108,7 +110,9 @@ export async function montarLojas(): Promise<Lojas> {
     const pendentes = STATIC.flatMap(l => l.meses
       .filter(m => (rem.find(r => r.cnpj === l.cnpj && r.mes === m.mes)?.notas || 0) < m.notas)
       .map(m => ({ cnpj: l.cnpj, mes: m.mes, loja: l.loja, notas: m.notas })))
-    return { lojas: agrupar([], rem), importadas: rem.reduce((s, r) => s + r.notas, 0), pendentes }
+    const { data: ap } = await sb!.from('nfce_lojas').select('cnpj,apelido')  // sem a migração 003: sem apelidos
+    const apelidos = new Map((ap || []).map(a => [a.cnpj as string, (a.apelido as string) || '']))
+    return { lojas: agrupar([], rem, apelidos), importadas: rem.reduce((s, r) => s + r.notas, 0), pendentes }
   }
   // Sem banco central: junta o que foi publicado (dados/) com o que foi importado neste navegador
   let imp: Resumo[] = []
@@ -116,17 +120,17 @@ export async function montarLojas(): Promise<Lojas> {
   return { lojas: agrupar(STATIC, imp), importadas: imp.reduce((s, r) => s + r.notas, 0), pendentes: [] }
 }
 
-function agrupar(estatico: Loja[], imp: Resumo[]): Loja[] {
+function agrupar(estatico: Pick<Loja, 'cnpj' | 'loja' | 'end' | 'meses'>[], imp: Resumo[], apelidos = new Map<string, string>()): Loja[] {
   const map = new Map<string, Loja>()
   const add = (cnpj: string, loja: string, end: string, m: LojaMes) => {
     let L = map.get(cnpj)
-    if (!L) map.set(cnpj, L = { cnpj, loja, end, meses: [] })
+    if (!L) map.set(cnpj, L = { cnpj, loja, end, meses: [], apelido: apelidos.get(cnpj) || '', nome: apelidos.get(cnpj) || nomeAuto(loja, end) })
     const i = L.meses.findIndex(x => x.mes === m.mes)
     if (i >= 0) L.meses[i] = m; else L.meses.push(m)
   }
   estatico.forEach(l => l.meses.forEach(m => add(l.cnpj, l.loja, l.end, m)))
   imp.forEach(r => add(r.cnpj, r.loja, r.end, { mes: r.mes, notas: r.notas, total: r.total }))
-  const lojas = [...map.values()].sort((a, b) => a.loja.localeCompare(b.loja))
+  const lojas = [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome))
   lojas.forEach(l => l.meses.sort((a, b) => a.mes.localeCompare(b.mes)))
   return lojas
 }

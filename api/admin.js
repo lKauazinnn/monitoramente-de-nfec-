@@ -95,6 +95,14 @@ export default async function handler(req, res) {
         if (error) throw error
         return res.json({ ok: true })
       }
+      case 'apelido': {
+        const cnpj = String(req.body?.cnpj || '')
+        if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ erro: 'CNPJ inválido.' })
+        const apelido = String(req.body?.apelido || '').trim().slice(0, 60) || null
+        const { error } = await adm.from('nfce_lojas').upsert({ cnpj, apelido, atualizado_em: new Date().toISOString(), atualizado_por: user.id })
+        if (error) throw new Error(/nfce_lojas/.test(error.message) ? 'Tabela de apelidos não existe: rode supabase/003_apelido_lojas.sql no SQL Editor.' : error.message)
+        return res.json({ ok: true })
+      }
       case 'redefinir': {
         const u = await alvo()
         const { error } = await adm.auth.resetPasswordForEmail(u.email, { redirectTo: retorno })

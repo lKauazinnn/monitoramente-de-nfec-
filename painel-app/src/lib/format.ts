@@ -25,4 +25,9 @@ export const mesLabel = (m: string) => MES[+m.slice(5, 7) - 1] + '/' + m.slice(0
 export const mesCurto = (m: string) => MES[+m.slice(5, 7) - 1] + '/' + m.slice(2, 4)
 export const dayLabel = (iso: string) => { const d = new Date(iso + 'T12:00:00'); return { wd: WD[d.getDay()], dm: iso.slice(8, 10) + '/' + iso.slice(5, 7) } }
 export const cidade = (end: string) => (end.split(',').pop() || '').trim()
+// endereço no formato "Rua, nº - BAIRRO, CIDADE/UF"
+export const bairro = (end: string) => ((end.split(' - ')[1] || '').split(',')[0] || '').trim()
+const titulo = (s: string) => s.toLowerCase().replace(/(^|[\s/-])(\p{L})/gu, (_, a, c) => a + c.toUpperCase()).replace(/ (De|Da|Do|Das|Dos|E) /g, w => w.toLowerCase())
+// Nome da unidade quando o admin não definiu um apelido: "Caju" + bairro (ex.: Caju Asa Norte)
+export const nomeAuto = (loja: string, end: string) => { const b = bairro(end); return b ? 'Caju ' + titulo(b) : titulo(loja) }
 export const sum = <T,>(a: T[], f: (x: T) => number) => a.reduce((s, x) => s + f(x), 0)

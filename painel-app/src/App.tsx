@@ -144,7 +144,7 @@ export default function App() {
             {tela === 'painel' && lojas && lojas.length > 0 && <div className="order-last flex w-full gap-2 lg:order-none lg:w-auto">
               <Select className="min-w-0 flex-1 lg:w-64 lg:flex-none" value={v.loja} onChange={e => e.target.value === 'todas' ? setV({ loja: 'todas', mes: '' }) : abrirLoja(e.target.value, v.mes)} aria-label="Loja">
                 <option value="todas">Todas as lojas ({lojas.length})</option>
-                {lojas.map(l => <option key={l.cnpj} value={l.cnpj}>{l.loja} · {cidade(l.end)}</option>)}
+                {lojas.map(l => <option key={l.cnpj} value={l.cnpj}>{l.nome} · {cidade(l.end)}</option>)}
               </Select>
               <Select className="min-w-0 flex-1 lg:w-52 lg:flex-none" value={v.mes} aria-label="Mês"
                 onChange={e => v.loja === 'todas' ? setV({ ...v, mes: e.target.value }) : abrirLoja(v.loja, e.target.value)}>
@@ -179,16 +179,16 @@ export default function App() {
               <p className="font-mono text-[11px] tracking-wider text-muted uppercase">Administração</p>
               <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">Usuários e acessos</h1>
             </div>
-            <Admin meuId={uid} />
+            <Admin meuId={uid} lojas={lojas || []} onLojas={atualizar} />
           </>) : <>
           {lojas && lojas.length > 0 && (
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div className="min-w-0">
                 <p className="font-mono text-[11px] tracking-wider text-muted uppercase">
-                  {L ? `CNPJ ${fmtCnpj(L.cnpj)} · ${L.end}` : 'Visão geral da rede'}
+                  {L ? `${L.loja} · CNPJ ${fmtCnpj(L.cnpj)} · ${L.end}` : 'Visão geral da rede'}
                 </p>
                 <h1 className="mt-1 truncate text-3xl font-semibold tracking-tight sm:text-4xl">
-                  {L ? L.loja : 'Todas as lojas'} {L && <span className="text-accent">{mesLabel(v.mes)}</span>}
+                  {L ? L.nome : 'Todas as lojas'} {L && <span className="text-accent">{mesLabel(v.mes)}</span>}
                 </h1>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">

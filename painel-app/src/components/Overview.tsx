@@ -26,7 +26,7 @@ export function Overview({ lojas, mes, setMes, abrirLoja }: { lojas: Loja[]; mes
         <Kpi label="Faturamento" value={brl.format(T)} sub={periodo} icon={<Wallet className="size-4" />} tone="accent" />
         <Kpi label="Notas autorizadas" value={nf.format(N)} sub={`${lojas.length} ${lojas.length === 1 ? 'loja' : 'lojas'}`} icon={<Receipt className="size-4" />} />
         <Kpi label="Ticket médio" value={brl.format(N ? T / N : 0)} sub="todas as lojas" icon={<Ticket className="size-4" />} />
-        <Kpi label="Maior loja" value={lin[0]?.l.loja || '—'} sub={lin[0] ? pct(lin[0].total / (T || 1)) + ' do faturamento' : ''} icon={<Store className="size-4" />} />
+        <Kpi label="Maior loja" value={lin[0]?.l.nome || '—'} sub={lin[0] ? pct(lin[0].total / (T || 1)) + ' do faturamento' : ''} icon={<Store className="size-4" />} />
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
@@ -45,7 +45,7 @@ export function Overview({ lojas, mes, setMes, abrirLoja }: { lojas: Loja[]; mes
                   <span className="num w-5 text-xs text-subtle">{i + 1}</span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-3">
-                      <span className="truncate text-sm font-medium">{x.l.loja} <span className="font-normal text-muted">· {cidade(x.l.end)}</span></span>
+                      <span className="truncate text-sm font-medium">{x.l.nome} <span className="font-normal text-muted">· {cidade(x.l.end)}</span></span>
                       <span className="num text-sm font-semibold">{brl0.format(x.total)}</span>
                     </div>
                     <div className="mt-2 h-1.5 rounded-full bg-surface-3"><div className="h-full rounded-full bg-accent" style={{ width: `${(x.total / lmx) * 100}%` }} /></div>
@@ -67,7 +67,7 @@ export function Overview({ lojas, mes, setMes, abrirLoja }: { lojas: Loja[]; mes
             <div className="px-2 py-1.5 text-right font-semibold text-muted">Total</div>
             {lin.map(x => [
               <button key="n" onClick={() => abrirLoja(x.l.cnpj)} className="cursor-pointer truncate rounded-lg px-2 py-2 text-left font-medium hover:bg-surface-2">
-                {x.l.loja} <span className="font-mono text-subtle">{fmtCnpj(x.l.cnpj).slice(-8)}</span>
+                {x.l.nome} <span className="font-mono text-subtle">{fmtCnpj(x.l.cnpj).slice(-8)}</span>
               </button>,
               ...meses.map(m => {
                 const v = val(x.l, m)
