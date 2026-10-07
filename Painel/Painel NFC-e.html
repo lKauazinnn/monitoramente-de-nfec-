@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel NFC-e · CAJUPAR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F4F1EA;--card:#FBF9F4;--ink:#1D1B17;--mut:#6B665C;--mut2:#8A857A;--line:#DDD7CA;--line2:#ECE7DC;--soft:#F1EDE3;--seg:#E9E4D8;--acc:#D9682E;--acc2:#B4501E;--accl:#E8D9C6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Geist',system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:'Geist Mono',ui-monospace,Consolas,monospace}
+.wrap{min-height:100vh;max-width:1360px;margin:0 auto;padding:32px 28px 64px;display:flex;flex-direction:column;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+h1{margin:6px 0 0;font-size:34px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
+h1 span{color:var(--acc2)}
+h2{margin:0;font-size:15px;font-weight:600}
+.ctrls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+select{font:inherit;font-size:13px;font-weight:500;padding:8px 30px 8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B665C' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 11px center;appearance:none;color:var(--ink);cursor:pointer;max-width:280px}
+.seg{display:flex;gap:2px;padding:3px;background:var(--seg);border-radius:10px}
+.seg button{border:0;cursor:pointer;font:inherit;font-size:13px;font-weight:500;padding:7px 12px;border-radius:8px;background:transparent;color:var(--mut)}
+.seg button.on{background:var(--card);color:var(--ink)}
+.seg.sm button{font-size:12px;padding:5px 10px;border-radius:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);cursor:pointer;font:inherit;font-size:13px;padding:7px 12px;border-radius:999px;background:var(--card);color:var(--ink);display:flex;gap:6px;align-items:baseline}
+.chip.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.chip b{font-weight:600}.chip i{font-style:normal;font-size:11px;opacity:.75}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px;align-items:start}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.kpi{padding:18px 20px;display:flex;flex-direction:column;gap:8px;min-width:0;box-shadow:1px 0 0 var(--line),0 1px 0 var(--line)}
+.kpi .l{font-size:12px;color:var(--mut);font-weight:500}
+.kpi .v{font-size:clamp(20px,2.1vw,27px);font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi .s{font-size:11px;color:var(--mut)}
+.hd{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.note{font-size:11px;color:var(--mut)}
+.bars{display:flex;align-items:flex-end;gap:4px;height:210px}
+.bar{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;cursor:pointer}
+.bar .fill{border-radius:5px 5px 2px 2px;min-height:2px}
+.bar .lb{font-size:10px;text-align:center;color:var(--mut);white-space:nowrap;overflow:hidden}
+.bar .vl{font-size:10px;text-align:center;white-space:nowrap;overflow:hidden}
+.paybar{display:flex;height:14px;border-radius:999px;overflow:hidden;gap:2px}
+.row{display:grid;align-items:center;border-top:1px solid var(--line2);font-size:14px}
+.payrow{grid-template-columns:12px minmax(0,1fr) auto 56px;gap:12px;padding:10px 0}
+.sw{width:10px;height:10px;border-radius:3px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.split div{background:var(--soft);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:4px}
+.prow{grid-template-columns:22px minmax(0,1fr) 64px 100px;gap:10px;padding:8px 0;font-size:13px}
+.track{height:4px;background:var(--line2);border-radius:2px}.track div{height:100%;background:var(--acc);border-radius:2px}
+.ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.r{text-align:right}.num{font-variant-numeric:tabular-nums}
+.tbl{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.tbl .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 20px}
+.tbl input{font:inherit;font-size:13px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;min-width:260px;outline:none;color:var(--ink)}
+.th,.tr{display:grid;grid-template-columns:90px 110px 90px 100px minmax(0,1fr) 60px 110px;gap:12px;padding:10px 20px}
+.th{background:var(--soft);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+.tr{border-top:1px solid var(--line2);font-size:13px;cursor:pointer;align-items:center;padding:11px 20px}
+.tr:hover{background:#F6F2E9}
+.tag{font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px}
+.salao{background:#F6E3D5;color:#9A4318}.entrega{background:#E9EFD8;color:#4E6520}
+.foot{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 20px;border-top:1px solid var(--line2);font-size:13px;color:var(--mut)}
+.btn{font:inherit;font-size:13px;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;color:var(--ink)}
+.ov{position:fixed;inset:0;background:rgba(29,27,23,.35);z-index:10}
+aside{position:fixed;top:0;right:0;bottom:0;width:min(440px,100vw);background:var(--card);z-index:11;display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(29,27,23,.15)}
+aside .h{padding:22px 24px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+aside .b{flex:1;overflow-y:auto;padding:8px 24px 24px}
+.it{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line2);font-size:13px}
+.msg{padding:60px 20px;text-align:center;color:var(--mut);font-size:14px;line-height:1.6}
+.lojarow{grid-template-columns:minmax(0,1.6fr) 90px 130px 110px;gap:12px;padding:11px 20px;font-size:13px;cursor:pointer}
+.lojarow:hover{background:#F6F2E9}
+.heat{display:grid;gap:2px;font-size:11px}
+.heat .c{padding:7px 6px;border-radius:4px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="msg">Carregando…</div></div>
+
+<script>
+// ---------- utilidades ----------
+const PAY = { '01':'Dinheiro','02':'Cheque','03':'Crédito','04':'Débito','05':'Crédito loja','10':'Vale-alimentação','11':'Vale-refeição','12':'Vale-presente','13':'Vale-combustível','15':'Boleto','16':'Depósito','17':'PIX','18':'Transferência','19':'Fidelidade','90':'Sem pagamento','99':'Outros' };
+const PAYC = { '03':'#D9682E','04':'#1D1B17','17':'#7A9A2E','99':'#C9B98F','01':'#8C5A3C','11':'#E9A15B','10':'#A9B884','05':'#B4501E','12':'#6B665C' };
+const WD = ['dom','seg','ter','qua','qui','sex','sáb'];
+const MES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const brl = new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'});
+const brl0 = new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+const nf = new Intl.NumberFormat('pt-BR');
+const qf = new Intl.NumberFormat('pt-BR',{maximumFractionDigits:3});
+const qf1 = new Intl.NumberFormat('pt-BR',{maximumFractionDigits:1});
+const kf = v => v>=1e6 ? (v/1e6).toFixed(1).replace('.',',')+'M' : v>=1e3 ? Math.round(v/1e3)+'k' : Math.round(v)+'';
+const pct = x => (x*100).toFixed(1).replace('.',',')+'%';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtCnpj = c => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5');
+const mesLabel = m => MES[+m.slice(5,7)-1] + '/' + m.slice(0,4);
+const CUT = 5; // dia operacional vira às 05h
+const isGorjeta = nome => /gorjeta|taxa de servi|servi[cç]o 10/i.test(nome || '');
+
+// ---------- estado ----------
+const S = { lojas:[], loja:'todas', mes:'', canal:'all', day:'all', sort:'rev', q:'', page:0, sel:null, data:null, loading:false, erro:'' };
+const cache = {};
+let pend = null;
+
+window.NFCE_LOJAS = d => { S.lojas = d.lojas || []; S.gerado = d.gerado; };
+window.NFCE_LOAD = d => {
+  const prods = d.prods;
+  const notes = d.notes.map(([n,dh,total,desc,icms,pays,info,items,chave]) => {
+    const m = (info||'').match(/venda:\s*(\d+)\s*-\s*(ficha|entrega|mesa|comanda)\s*(\d+)/i) || [];
+    const tipo = (m[2]||'').toLowerCase();
+    const it = items.map(([p,q,v,dd]) => ({p,q,v,d:dd,g:isGorjeta((prods[p]||[])[1])}));
+    return { n, dh, date:dh.slice(0,10), hour:+dh.slice(11,13), total, desc, icms, chave,
+      pays: pays.map(([c,v]) => ({c,v})), venda: m[1] || '—',
+      canal: tipo === 'entrega' ? 'entrega' : 'salao',
+      ref: m[2] ? tipo.charAt(0).toUpperCase()+tipo.slice(1)+' '+m[3] : '—',
+      items: it, gorj: it.filter(i=>i.g).reduce((s,i)=>s+i.v,0) };
+  });
+  cache[d.cnpj+'|'+d.mes] = { ...d, notes };
+  if (pend) { pend(); pend = null; }
+};
+
+function loadMes(cnpj, mes) {
+  const k = cnpj+'|'+mes;
+  if (cache[k]) return Promise.resolve(cache[k]);
+  return new Promise((res, rej) => {
+    pend = () => res(cache[k]);
+    const s = document.createElement('script');
+    s.src = 'dados/'+cnpj+'/'+mes+'.js?'+(S.gerado||'');
+    s.onerror = () => { pend = null; rej(new Error('Arquivo dados/'+cnpj+'/'+mes+'.js não encontrado')); };
+    document.body.appendChild(s);
+  });
+}
+
+function opDay(nt) {
+  if (nt.hour >= CUT) return nt.date;
+  const d = new Date(nt.date+'T12:00:00'); d.setDate(d.getDate()-1);
+  return d.toISOString().slice(0,10);
+}
+const dayLabel = iso => { const d = new Date(iso+'T12:00:00'); return { wd: WD[d.getDay()], dm: iso.slice(8,10)+'/'+iso.slice(5,7) }; };
+const sum = (a,k) => a.reduce((s,x)=>s+x[k],0);
+
+// ---------- ações ----------
+const app = document.getElementById('app');
+function set(o, keepPage) { Object.assign(S, keepPage ? {} : {page:0}, o); render(); }
+
+async function abrirLoja(cnpj, mes) {
+  const L = S.lojas.find(l => l.cnpj === cnpj);
+  if (!L) return set({loja:'todas'});
+  const meses = L.meses.map(m=>m.mes);
+  mes = meses.includes(mes) ? mes : meses[meses.length-1];
+  Object.assign(S, {loja:cnpj, mes, day:'all', page:0, q:'', sel:null, loading:true, erro:''});
+  render();
+  try { S.data = await loadMes(cnpj, mes); } catch(e) { S.erro = e.message; S.data = null; }
+  S.loading = false; render();
+}
+
+app.addEventListener('click', e => {
+  const t = e.target.closest('[data-a]'); if (!t) return;
+  const a = t.dataset.a, v = t.dataset.v;
+  if (a==='canal') set({canal:v});
+  else if (a==='day') set({day: S.day===v ? 'all' : v});
+  else if (a==='sort') set({sort:v}, true);
+  else if (a==='prev') set({page:Math.max(0,S.page-1)}, true);
+  else if (a==='next') set({page:S.page+1}, true);
+  else if (a==='open') { S.sel = (S.data.notes.find(n => String(n.n)===v && n.chave===t.dataset.c)); render(); }
+  else if (a==='close') set({sel:null}, true);
+  else if (a==='loja') abrirLoja(v, S.mes);
+  else if (a==='mesov') set({mes:v});
+});
+app.addEventListener('change', e => {
+  if (e.target.id==='selLoja') { e.target.value==='todas' ? set({loja:'todas', data:null, mes:''}) : abrirLoja(e.target.value, S.mes); }
+  if (e.target.id==='selMes') { S.loja==='todas' ? set({mes:e.target.value}) : abrirLoja(S.loja, e.target.value); }
+});
+app.addEventListener('input', e => {
+  if (e.target.id==='q') { S.q = e.target.value; S.page = 0; document.getElementById('tabela').innerHTML = tabela(); }
+});
+document.addEventListener('keydown', e => { if (e.key==='Escape' && S.sel) set({sel:null}, true); });
+
+// ---------- telas ----------
+function cabecalho(eyebrow, titulo, destaque, ctrls) {
+  return `<header><div><div class="eyebrow mono">${eyebrow}</div><h1>${esc(titulo)} ${destaque?`<span>${esc(destaque)}</span>`:''}</h1></div><div class="ctrls">${ctrls}</div></header>`;
+}
+function selLoja() {
+  return `<select id="selLoja"><option value="todas"${S.loja==='todas'?' selected':''}>Todas as lojas (${S.lojas.length})</option>${
+    S.lojas.map(l=>`<option value="${l.cnpj}"${S.loja===l.cnpj?' selected':''}>${esc(l.loja)} · ${esc((l.end.split(',').pop()||'').trim())}</option>`).join('')}</select>`;
+}
+
+function telaTodas() {
+  const meses = [...new Set(S.lojas.flatMap(l=>l.meses.map(m=>m.mes)))].sort();
+  const mes = S.mes && meses.includes(S.mes) ? S.mes : '';
+  const val = (l,m) => (l.meses.find(x=>x.mes===m)||{total:0,notas:0});
+  const lin = S.lojas.map(l => {
+    const ms = mes ? [val(l,mes)] : l.meses;
+    return { l, total: ms.reduce((s,x)=>s+x.total,0), notas: ms.reduce((s,x)=>s+x.notas,0) };
+  }).sort((a,b)=>b.total-a.total);
+  const T = lin.reduce((s,x)=>s+x.total,0), N = lin.reduce((s,x)=>s+x.notas,0);
+  const porMes = meses.map(m => ({ m, v: S.lojas.reduce((s,l)=>s+val(l,m).total,0) }));
+  const mx = Math.max(1,...porMes.map(x=>x.v)), lmx = Math.max(1,...lin.map(x=>x.total));
+  const hmx = Math.max(1,...S.lojas.flatMap(l=>l.meses.map(x=>x.total)));
+  const ctrls = selLoja() + `<select id="selMes"><option value="">Todos os meses</option>${meses.map(m=>`<option value="${m}"${m===mes?' selected':''}>${mesLabel(m)}</option>`).join('')}</select>`;
+  return cabecalho('NFC-e · CAJUPAR · '+(mes?mesLabel(mes):meses.length?mesLabel(meses[0])+' a '+mesLabel(meses[meses.length-1]):''), 'Todas as lojas', '', ctrls) + `
+  <section class="kpis">
+    <div class="kpi"><div class="l">Faturamento</div><div class="v">${brl.format(T)}</div><div class="s mono">${mes?mesLabel(mes):meses.length+' meses'}</div></div>
+    <div class="kpi"><div class="l">Notas autorizadas</div><div class="v">${nf.format(N)}</div><div class="s mono">${S.lojas.length} lojas</div></div>
+    <div class="kpi"><div class="l">Ticket médio</div><div class="v">${brl.format(N?T/N:0)}</div><div class="s mono">todas as lojas</div></div>
+    <div class="kpi"><div class="l">Maior loja</div><div class="v ell">${esc(lin[0]?.l.loja||'—')}</div><div class="s mono">${lin[0]?pct(lin[0].total/(T||1))+' do total':''}</div></div>
+  </section>
+  <section class="grid2">
+    <div class="card"><div class="hd"><h2>Faturamento por mês</h2><span class="note mono">clique para filtrar</span></div>
+      <div class="bars">${porMes.map(x=>`<div class="bar" data-a="mesov" data-v="${x.m===mes?'':x.m}"><div class="vl mono">${kf(x.v)}</div><div class="fill" style="height:${(x.v/mx*82).toFixed(1)}%;background:${!mes||x.m===mes?'var(--acc)':'var(--accl)'}"></div><div class="lb">${mesLabel(x.m)}</div></div>`).join('')}</div></div>
+    <div class="card"><div class="hd"><h2>Faturamento por loja</h2><span class="note mono">clique para abrir a loja</span></div>
+      <div>${lin.map(x=>`<div class="row lojarow" data-a="loja" data-v="${x.l.cnpj}" style="padding:9px 0;grid-template-columns:minmax(0,1fr) 110px"><div style="display:flex;flex-direction:column;gap:5px;min-width:0"><span class="ell">${esc(x.l.loja)} <span style="color:var(--mut);font-size:12px">· ${esc((x.l.end.split(',').pop()||'').trim())}</span></span><div class="track"><div style="width:${(x.total/lmx*100).toFixed(1)}%"></div></div></div><span class="r num" style="font-weight:500">${brl0.format(x.total)}</span></div>`).join('')}</div></div>
+  </section>
+  <section class="tbl"><div class="top"><h2>Lojas × meses <span style="font-weight:400;color:var(--mut)">· faturamento</span></h2><span class="note mono">gerado em ${S.gerado?new Date(S.gerado).toLocaleString('pt-BR'):''}</span></div>
+    <div class="scroll"><div class="heat" style="grid-template-columns:minmax(200px,1.5fr) repeat(${meses.length},minmax(84px,1fr)) minmax(110px,1fr);padding:0 20px 20px;min-width:${300+meses.length*90}px">
+      <div class="c" style="text-align:left;color:var(--mut);font-weight:600">LOJA</div>${meses.map(m=>`<div class="c" style="color:var(--mut);font-weight:600">${mesLabel(m).toUpperCase()}</div>`).join('')}<div class="c" style="color:var(--mut);font-weight:600">TOTAL</div>
+      ${lin.map(x=>`<div class="c ell" style="text-align:left;cursor:pointer" data-a="loja" data-v="${x.l.cnpj}">${esc(x.l.loja)} <span style="color:var(--mut)">${fmtCnpj(x.l.cnpj).slice(-8)}</span></div>${meses.map(m=>{const v=val(x.l,m).total;return `<div class="c" style="background:rgba(217,104,46,${v?(.08+v/hmx*.55).toFixed(2):0})" title="${val(x.l,m).notas} notas">${v?kf(v):'—'}</div>`}).join('')}<div class="c" style="font-weight:600">${kf(x.l.meses.reduce((s,y)=>s+y.total,0))}</div>`).join('')}
+    </div></div></section>`;
+}
+
+function telaLoja() {
+  const L = S.lojas.find(l=>l.cnpj===S.loja);
+  const ctrls = selLoja() + `<select id="selMes">${L.meses.map(m=>`<option value="${m.mes}"${m.mes===S.mes?' selected':''}>${mesLabel(m.mes)} · ${nf.format(m.notas)} notas</option>`).join('')}</select>
+    <div class="seg">${[['all','Todos'],['salao','Salão'],['entrega','Entrega']].map(([k,l])=>`<button data-a="canal" data-v="${k}" class="${S.canal===k?'on':''}">${l}</button>`).join('')}</div>`;
+  const head = cabecalho('NFC-e · CNPJ '+fmtCnpj(L.cnpj)+' · '+esc(L.end), L.loja, mesLabel(S.mes), ctrls);
+  if (S.loading) return head + '<div class="msg">Carregando notas…</div>';
+  if (S.erro || !S.data) return head + `<div class="msg">${esc(S.erro||'Sem dados')}</div>`;
+
+  const D = S.data;
+  const ini = S.mes+'-01';  // madrugada do dia 1 conta no dia 1 (o dia anterior é de outro mês)
+  const all = D.notes.map(nt => { const od = opDay(nt); return {...nt, od: od < ini ? ini : od}; });
+  const byCanal = all.filter(nt => S.canal==='all' || nt.canal===S.canal);
+  const days = [...new Set(all.map(n=>n.od))].sort();
+  const f = byCanal.filter(nt => S.day==='all' || nt.od===S.day);
+  S._f = f;
+  const rev = sum(f,'total'), desc = sum(f,'desc'), icms = sum(f,'icms'), gorj = sum(f,'gorj');
+  const nItems = f.reduce((s,n)=>s+n.items.filter(i=>!i.g).reduce((t,i)=>t+i.q,0),0);
+
+  const dayTot = days.map(d => sum(byCanal.filter(n=>n.od===d),'total'));
+  const dmax = Math.max(1,...dayTot);
+  const chips = `<div class="chips"><button class="chip ${S.day==='all'?'on':''}" data-a="day" data-v="all"><b>Mês todo</b><i class="mono">${days.length} dias</i></button>${
+    days.map((d,i)=>{const l=dayLabel(d);return `<button class="chip ${S.day===d?'on':''}" data-a="day" data-v="${d}"><b>${l.wd} ${l.dm}</b><i class="mono">${brl0.format(dayTot[i])}</i></button>`}).join('')}</div>`;
+
+  const kpis = [
+    ['Faturamento', brl.format(rev), S.day==='all' ? 'média '+brl0.format(rev/Math.max(days.length,1))+'/dia' : dayLabel(S.day).dm],
+    ['Notas autorizadas', nf.format(f.length), S.day==='all' ? D.lacunas+' lacunas na numeração' : ''],
+    ['Ticket médio', brl.format(f.length?rev/f.length:0), qf1.format(f.length?nItems/f.length:0)+' itens por nota'],
+    ['Gorjeta / serviço', brl.format(gorj), pct(rev?gorj/rev:0)+' do faturamento'],
+    ['Descontos', brl.format(desc), pct(rev?desc/(rev+desc):0)+' do bruto'],
+    ['ICMS destacado', brl.format(icms), pct(rev?icms/rev:0)+' do faturamento'],
+  ];
+
+  const dayBars = days.map((d,i)=>`<div class="bar" data-a="day" data-v="${d}" title="${dayLabel(d).wd} ${dayLabel(d).dm} · ${brl.format(dayTot[i])}"><div class="vl mono">${kf(dayTot[i])}</div><div class="fill" style="height:${(dayTot[i]/dmax*82).toFixed(1)}%;background:${S.day==='all'||S.day===d?'var(--acc)':'var(--accl)'}"></div><div class="lb mono">${d.slice(8,10)}</div></div>`).join('');
+
+  const hrs = {}; f.forEach(n => { hrs[n.hour] = hrs[n.hour] || {v:0,c:0}; hrs[n.hour].v += n.total; hrs[n.hour].c++; });
+  const hk = Object.keys(hrs).map(Number), order = h => h<CUT ? h+24 : h;
+  const hourList = []; if (hk.length) { const lo = Math.min(...hk.map(order)), hi = Math.max(...hk.map(order)); for (let h=lo; h<=hi; h++) hourList.push(h%24); }
+  const hmax = Math.max(1,...hk.map(h=>hrs[h].v));
+  const peak = hk.slice().sort((a,b)=>hrs[b].v-hrs[a].v)[0];
+  const hourBars = hourList.map(h => { const x = hrs[h]||{v:0,c:0}; return `<div class="bar" style="cursor:default" title="${String(h).padStart(2,'0')}h · ${brl.format(x.v)} · ${x.c} notas"><div class="fill" style="height:${(x.v/hmax*92).toFixed(1)}%;background:${h===peak?'var(--acc)':'var(--ink)'}"></div><div class="lb mono">${String(h).padStart(2,'0')}</div></div>`; }).join('');
+
+  const pa = {}; f.forEach(n => n.pays.forEach(p => { pa[p.c] = pa[p.c]||{v:0,c:0}; pa[p.c].v += p.v; pa[p.c].c++; }));
+  const ptot = Object.values(pa).reduce((s,x)=>s+x.v,0) || 1;
+  const pays = Object.entries(pa).sort((a,b)=>b[1].v-a[1].v);
+  const dayScope = all.filter(nt => S.day==='all' || nt.od===S.day);
+  const split = [['salao','Salão (fichas)'],['entrega','Entrega']].map(([k,l]) => { const a = dayScope.filter(n=>n.canal===k), v = sum(a,'total'); return `<div><span style="font-size:12px;color:var(--mut)">${l}</span><span class="num" style="font-size:20px;font-weight:600">${brl0.format(v)}</span><span class="mono" style="font-size:11px;color:var(--mut)">${nf.format(a.length)} notas · tm ${brl0.format(a.length?v/a.length:0)}</span></div>`; }).join('');
+
+  const pm = {}; f.forEach(n => n.items.forEach(i => { if (i.g) return; pm[i.p] = pm[i.p]||{q:0,v:0}; pm[i.p].q += i.q; pm[i.p].v += i.v - i.d; }));
+  const key = S.sort==='rev' ? 'v' : 'q';
+  const ps = Object.entries(pm).sort((a,b)=>b[1][key]-a[1][key]).slice(0,15);
+  const pmax = ps.length ? ps[0][1][key] : 1;
+
+  return head + chips + `
+  <section class="kpis">${kpis.map(([l,v,s])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s mono">${s}</div></div>`).join('')}</section>
+  <section class="grid2">
+    <div class="card"><div class="hd"><h2>Faturamento por dia</h2><span class="note mono">dia operacional vira às ${String(CUT).padStart(2,'0')}h</span></div><div class="bars" style="gap:3px">${dayBars}</div></div>
+    <div class="card"><div class="hd"><h2>Movimento por hora</h2><span class="note mono">${peak!==undefined?'pico às '+String(peak).padStart(2,'0')+'h':''}</span></div><div class="bars" style="gap:3px">${hourBars}</div></div>
+  </section>
+  <section class="grid2">
+    <div class="card"><h2>Formas de pagamento</h2>
+      <div class="paybar">${pays.map(([c,x])=>`<div style="width:${(x.v/ptot*100).toFixed(2)}%;background:${PAYC[c]||'#999'}"></div>`).join('')}</div>
+      <div>${pays.map(([c,x])=>`<div class="row payrow"><span class="sw" style="background:${PAYC[c]||'#999'}"></span><span>${PAY[c]||c} <span style="color:var(--mut);font-size:12px">· ${nf.format(x.c)} pgtos</span></span><span class="num" style="font-weight:500">${brl.format(x.v)}</span><span class="mono r" style="font-size:12px;color:var(--mut)">${pct(x.v/ptot)}</span></div>`).join('')}</div>
+      <div class="split">${split}</div></div>
+    <div class="card"><div class="hd"><h2>Produtos mais vendidos</h2><div class="seg sm">${[['rev','Receita'],['qty','Quantidade']].map(([k,l])=>`<button data-a="sort" data-v="${k}" class="${S.sort===k?'on':''}">${l}</button>`).join('')}</div></div>
+      <div>${ps.map(([p,x],i)=>`<div class="row prow"><span class="mono" style="font-size:11px;color:var(--mut2)">${i+1}</span><div style="display:flex;flex-direction:column;gap:5px;min-width:0"><span class="ell">${esc((D.prods[p]||[])[1])}</span><div class="track"><div style="width:${(x[key]/pmax*100).toFixed(1)}%"></div></div></div><span class="mono r" style="font-size:12px;color:var(--mut)">${qf.format(x.q)}</span><span class="r num" style="font-weight:500">${brl.format(x.v)}</span></div>`).join('')}</div></div>
+  </section>
+  <section class="tbl"><div class="top"><h2>Notas emitidas <span id="cnt" style="font-weight:400;color:var(--mut)"></span></h2><input id="q" value="${esc(S.q)}" placeholder="Buscar nº da nota, ficha, produto ou chave"></div>
+    <div id="tabela">${tabela()}</div></section>
+  ${S.sel ? gaveta(S.sel, D) : ''}`;
+}
+
+function tabela() {
+  const D = S.data, f = S._f || [];
+  const q = S.q.trim().toLowerCase();
+  const list = (q ? f.filter(n => String(n.n).includes(q) || n.ref.toLowerCase().includes(q) || (n.chave||'').includes(q) || n.items.some(i => ((D.prods[i.p]||[])[1]||'').toLowerCase().includes(q))) : f).slice().sort((a,b)=>b.dh.localeCompare(a.dh) || b.n-a.n);
+  const PER = 25, pages = Math.max(1, Math.ceil(list.length/PER)), page = Math.min(S.page, pages-1); S.page = page;
+  const c = document.getElementById('cnt'); if (c) c.textContent = '· '+nf.format(list.length);
+  setTimeout(() => { const c2 = document.getElementById('cnt'); if (c2) c2.textContent = '· '+nf.format(list.length); });
+  const fmtDt = n => n.dh.slice(8,10)+'/'+n.dh.slice(5,7)+' '+n.dh.slice(11,16);
+  return `<div class="scroll"><div style="min-width:780px"><div class="th"><span>Nº</span><span>Emissão</span><span>Canal</span><span>Ref.</span><span>Pagamento</span><span class="r">Itens</span><span class="r">Total</span></div>
+    ${list.slice(page*PER, page*PER+PER).map(n=>`<div class="tr" data-a="open" data-v="${n.n}" data-c="${n.chave}"><span class="mono" style="font-size:12px">${n.n}</span><span class="mono" style="font-size:12px;color:var(--mut)">${fmtDt(n)}</span><span><span class="tag ${n.canal}">${n.canal==='entrega'?'Entrega':'Salão'}</span></span><span style="color:var(--mut)">${esc(n.ref)}</span><span class="ell">${n.pays.map(p=>PAY[p.c]||p.c).join(' + ')}</span><span class="r mono" style="font-size:12px;color:var(--mut)">${n.items.length}</span><span class="r num" style="font-weight:500">${brl.format(n.total)}</span></div>`).join('')}
+    </div></div><div class="foot"><span>Página ${page+1} de ${pages}</span><div style="display:flex;gap:6px"><button class="btn" data-a="prev">← Anterior</button><button class="btn" data-a="next">Próxima →</button></div></div>`;
+}
+
+function gaveta(n, D) {
+  const fmtDt = n.dh.slice(8,10)+'/'+n.dh.slice(5,7)+'/'+n.dh.slice(0,4)+' '+n.dh.slice(11,16);
+  const bruto = n.items.reduce((s,i)=>s+i.v,0);
+  const summary = [['Subtotal',bruto],['Desconto',n.desc],['ICMS',n.icms]].concat(n.pays.map(p=>[PAY[p.c]||p.c,p.v]));
+  return `<div class="ov" data-a="close"></div><aside><div class="h"><div style="display:flex;flex-direction:column;gap:6px">
+    <span class="mono" style="font-size:11px;color:var(--mut);letter-spacing:.06em;text-transform:uppercase">NFC-e nº ${n.n}</span>
+    <span style="font-size:24px;font-weight:600;letter-spacing:-.02em">${brl.format(n.total)}</span>
+    <span style="font-size:13px;color:var(--mut)">${fmtDt} · ${n.canal==='entrega'?'Entrega':'Salão'} · ${esc(n.ref)} · venda ${esc(n.venda)}</span></div>
+    <button class="btn" data-a="close">Fechar</button></div>
+    <div class="b">${n.items.map(i=>{const p=D.prods[i.p]||[];return `<div class="it"><span style="font-weight:500">${esc(p[1])}</span><span class="num r">${brl.format(i.v)}</span><span class="mono" style="font-size:11px;color:var(--mut)">${qf.format(i.q)} × ${brl.format(i.v/(i.q||1))} · cód ${esc(p[0])}</span><span class="mono r" style="font-size:11px;color:var(--acc2)">${i.d?'− '+brl.format(i.d):''}</span></div>`}).join('')}
+    <div style="display:flex;flex-direction:column;gap:8px;padding-top:16px;font-size:13px">${summary.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--mut)">${k}</span><span class="num">${brl.format(v)}</span></div>`).join('')}</div>
+    <div class="mono" style="margin-top:16px;font-size:10px;color:var(--mut2);word-break:break-all">Chave ${n.chave}</div></div></aside>`;
+}
+
+function render() {
+  const sy = window.scrollY;
+  if (!S.lojas.length) {
+    app.innerHTML = cabecalho('NFC-e · CAJUPAR','Painel NFC-e','','') + '<div class="msg">Nenhum dado encontrado.<br>Arraste os CSVs exportados do SSMS para <b>Processar.bat</b> e abra este painel de novo.</div>';
+    return;
+  }
+  app.innerHTML = S.loja==='todas' ? telaTodas() : telaLoja();
+  window.scrollTo(0, sy);
+}
+</script>
+<script src="dados/lojas.js" onerror="render()"></script>
+<script>
+if (S.lojas.length === 1) abrirLoja(S.lojas[0].cnpj); else render();
+</script>
+</body>
+</html>

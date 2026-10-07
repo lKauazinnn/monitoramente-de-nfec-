@@ -1,0 +1,1 @@
+NFCE_LOJAS({"gerado":"2026-10-07T00:42:23","lojas":[{"cnpj":"62723936000106","loja":"CAJU LIMAO","end":"R.Pedroso Alvarenga, 1111 - ITAIM BIBI, SAO PAULO/SP","meses":[{"mes":"2026-05","notas":6218,"total":1714332.43},{"mes":"2026-06","notas":10396,"total":2788614.43},{"mes":"2026-07","notas":10476,"total":2899670.5}]}]});

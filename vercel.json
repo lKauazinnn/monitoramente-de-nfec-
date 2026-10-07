@@ -1,0 +1,5 @@
+{
+  "redirects": [
+    { "source": "/", "destination": "/Painel/Painel%20NFC-e.html", "permanent": false }
+  ]
+}

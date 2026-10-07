@@ -1,0 +1,26 @@
+{
+  "62723936000106|2026-05": {
+    "cnpj": "62723936000106",
+    "mes": "2026-05",
+    "loja": "CAJU LIMAO",
+    "end": "R.Pedroso Alvarenga, 1111 - ITAIM BIBI, SAO PAULO/SP",
+    "notas": 6218,
+    "total": 1714332.43
+  },
+  "62723936000106|2026-07": {
+    "cnpj": "62723936000106",
+    "mes": "2026-07",
+    "loja": "CAJU LIMAO",
+    "end": "R.Pedroso Alvarenga, 1111 - ITAIM BIBI, SAO PAULO/SP",
+    "notas": 10476,
+    "total": 2899670.5
+  },
+  "62723936000106|2026-06": {
+    "cnpj": "62723936000106",
+    "mes": "2026-06",
+    "loja": "CAJU LIMAO",
+    "end": "R.Pedroso Alvarenga, 1111 - ITAIM BIBI, SAO PAULO/SP",
+    "notas": 10396,
+    "total": 2788614.43
+  }
+}
