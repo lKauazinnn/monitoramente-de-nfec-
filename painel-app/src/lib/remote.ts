@@ -12,7 +12,11 @@ export const linkInicial = (() => {
 if (linkInicial.erro) history.replaceState(null, '', location.pathname)
 
 export const remoto = !!(SUPABASE_URL && SUPABASE_ANON_KEY)
-export const sb = remoto ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, storageKey: 'nfce-auth', flowType: 'implicit' } }) : null
+// A sessão fica guardada por projeto: ao trocar de banco, nenhum login antigo é reaproveitado
+const projeto = (SUPABASE_URL.match(/\/\/([^.]+)\./) || [])[1] || 'local'
+export const CHAVE_SESSAO = 'nfce-auth-' + projeto
+try { localStorage.removeItem('nfce-auth') } catch { /* sem localStorage */ }  // sessão do formato antigo (sem projeto)
+export const sb = remoto ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, storageKey: CHAVE_SESSAO, flowType: 'implicit' } }) : null
 
 // Para onde os links dos e-mails devem voltar
 export const urlRetorno = () => location.protocol === 'file:' ? SITE : location.origin + location.pathname
