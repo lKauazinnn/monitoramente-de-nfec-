@@ -1,6 +1,7 @@
 // Importação do CSV do SSMS (CONSULTA-SSMS.sql) — mesma lógica do Processar.ps1, roda só no navegador.
 import { DB, gz } from './db'
-import { invalidar, loadStatic, temEstatico, type RawMes, type RawNote } from './data'
+import { calcLacunas, invalidar, loadStatic, temEstatico, type Pendente, type RawMes, type RawNote } from './data'
+import { enviarNotas, enviarXmls, linhasDe, remoto } from './remote'
 
 const g = (rx: RegExp, s: string, d = '') => { const m = rx.exec(s); return m ? m[1] : d }
 const ENT: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" }
@@ -84,7 +85,7 @@ async function adicionarXml(ctx: Ctx, xml: string, cnpj?: string, mes?: string) 
   if (!M) ctx.meses.set(k, M = { cnpj, mes, loja: '', end: '', prods: [], pidx: new Map(), notes: [] })
   M.notes.push(notaDoXml(xml, M))
   ctx.xmls.push([ch, await gz(new Blob([xml]), 'c').blob()])
-  if (ctx.xmls.length >= 500) await DB.put('xml', ctx.xmls.splice(0))
+  if (!remoto && ctx.xmls.length >= 500) await DB.put('xml', ctx.xmls.splice(0))  // no modo banco central vão no fim, depois das notas
   ctx.ok++
 }
 
@@ -99,15 +100,6 @@ async function linhasDoArquivo(file: File, cb: (l: string) => unknown) {
     if (done) break
   }
   if (buf) await cb(buf)
-}
-
-function calcLacunas(notes: RawNote[]) {
-  const ser: Record<string, Set<number>> = {}
-  notes.forEach(n => (ser[n[8].slice(22, 25)] ||= new Set()).add(n[0]))
-  return Object.values(ser).reduce((t, s) => {
-    const a = [...s]
-    return t + a.reduce((x, y) => Math.max(x, y)) - a.reduce((x, y) => Math.min(x, y)) + 1 - a.length
-  }, 0)
 }
 
 // Une dois meses (notas repetidas pela chave ficam uma vez só). Nunca remove nada da base.
@@ -144,15 +136,33 @@ export async function importar(lista: File[], progresso: (msg: string) => void):
     })
   }
   for (const p of ctx.pend) await tentar(p[0], () => processarCampos(p, ctx, true))
-  if (ctx.xmls.length) await DB.put('xml', ctx.xmls.splice(0))
-  progresso('Montando dados do painel…')
-  const novos: [string, RawMes][] = []
-  for (const [k, M] of ctx.meses) {
-    let base = await DB.get<RawMes>('mes', k)
-    if (!base && temEstatico(M.cnpj, M.mes)) base = await loadStatic(M.cnpj, M.mes).catch(() => undefined)
-    novos.push([k, mergeRaw(base, { cnpj: M.cnpj, mes: M.mes, loja: M.loja, end: M.end, prods: M.prods, notes: M.notes })])
-    invalidar(k)
+  if (remoto) {
+    await enviarNotas([...ctx.meses.values()].flatMap(M => linhasDe(M)), progresso)
+    await enviarXmls(ctx.xmls, progresso)
+    ctx.meses.forEach((_, k) => invalidar(k))
+  } else {
+    if (ctx.xmls.length) await DB.put('xml', ctx.xmls.splice(0))
+    progresso('Montando dados do painel…')
+    const novos: [string, RawMes][] = []
+    for (const [k, M] of ctx.meses) {
+      let base = await DB.get<RawMes>('mes', k)
+      if (!base && temEstatico(M.cnpj, M.mes)) base = await loadStatic(M.cnpj, M.mes).catch(() => undefined)
+      novos.push([k, mergeRaw(base, { cnpj: M.cnpj, mes: M.mes, loja: M.loja, end: M.end, prods: M.prods, notes: M.notes })])
+      invalidar(k)
+    }
+    await DB.put('mes', novos)
   }
-  await DB.put('mes', novos)
   return { ok: ctx.ok, linhas: ctx.linhas, erros: ctx.erros, meses: [...ctx.meses.values()].map(M => ({ cnpj: M.cnpj, mes: M.mes })), segundos: Math.round((Date.now() - t0) / 1000) }
+}
+
+// Leva para o banco central os meses publicados em dados/ (gerados pelo Processar.ps1). Notas repetidas são ignoradas.
+export async function enviarPublicados(pendentes: Pendente[], progresso: (msg: string) => void) {
+  let total = 0
+  for (const p of pendentes) {
+    const raw = await loadStatic(p.cnpj, p.mes)
+    await enviarNotas(linhasDe(raw), m => progresso(`${p.loja} ${p.mes}: ${m}`))
+    invalidar(p.cnpj + '|' + p.mes)
+    total += raw.notes.length
+  }
+  return total
 }

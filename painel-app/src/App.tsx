@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DatabaseZap, FileUp, Moon, ShieldCheck, Sun, Upload } from 'lucide-react'
-import { carregarIndice, geradoEm, montarLojas, type Loja } from './lib/data'
+import { CloudUpload, Database, DatabaseZap, FileUp, LogIn, LogOut, Moon, ShieldCheck, Sun, Upload, UserRound } from 'lucide-react'
+import { carregarIndice, geradoEm, montarLojas, type Loja, type Pendente } from './lib/data'
 import { protegerArmazenamento } from './lib/db'
 import { cidade, fmtCnpj, mesLabel, nf } from './lib/format'
-import { importar } from './lib/importer'
+import { enviarPublicados, importar } from './lib/importer'
 import { baixar } from './lib/pdf'
+import { remoto, sb } from './lib/remote'
 import { PaletaCtx, paleta } from './components/charts'
 import { Overview } from './components/Overview'
+import { LoginModal, SessaoCtx } from './components/Sessao'
 import { StoreView } from './components/StoreView'
 import { useToast } from './components/Toast'
-import { Button, Empty, Select, Skeleton } from './components/ui'
+import { Button, Card, Empty, Select, Skeleton } from './components/ui'
 
 interface Vista { loja: string; mes: string }
 
@@ -23,13 +25,42 @@ export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
   const [arrastando, setArrastando] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [pendentes, setPendentes] = useState<Pendente[]>([])
+  const [email, setEmail] = useState<string | null>(null)
+  const [login, setLogin] = useState(false)
   const arq = useRef<HTMLInputElement>(null)
 
   const atualizar = useCallback(async () => {
-    const r = await montarLojas()
-    setLojas(r.lojas); setImportadas(r.importadas)
-    return r.lojas
+    try {
+      const r = await montarLojas()
+      setLojas(r.lojas); setImportadas(r.importadas); setPendentes(r.pendentes)
+      return r.lojas
+    } catch (e) {
+      toast('Não foi possível ler o banco central: ' + (e as Error).message, { tone: 'erro', fixo: true })
+      setLojas([])
+      return []
+    }
+  }, [toast])
+
+  useEffect(() => {
+    if (!sb) return
+    sb.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? null))
+    const { data } = sb.auth.onAuthStateChange((_, s) => setEmail(s?.user.email ?? null))
+    return () => data.subscription.unsubscribe()
   }, [])
+
+  const escolherArquivos = () => remoto && !email ? setLogin(true) : arq.current?.click()
+
+  async function sincronizar() {
+    setImportando(true)
+    try {
+      const n = await enviarPublicados(pendentes, m => toast(m, { tone: 'carregando' }))
+      const ls = await atualizar(); setVersao(x => x + 1)
+      if (ls.length === 1 && v.loja === 'todas') abrirLoja(ls[0].cnpj, undefined, ls)
+      toast(<><b>Dados publicados enviados ao banco</b>: {nf.format(n)} notas conferidas (as que já estavam lá foram mantidas).</>, { tone: 'ok' })
+    } catch (e) { toast('Erro ao enviar: ' + (e as Error).message, { tone: 'erro', fixo: true }) }
+    setImportando(false)
+  }
 
   const abrirLoja = useCallback((cnpj: string, mes?: string, ls?: Loja[]) => {
     const L = (ls || lojas || []).find(l => l.cnpj === cnpj)
@@ -50,6 +81,7 @@ export default function App() {
 
   const onImport = useCallback(async (files: File[]) => {
     if (importando || !files.length) return
+    if (remoto && !email) { setLogin(true); toast('Entre com seu usuário para importar notas.', { tone: 'erro' }); return }
     setImportando(true)
     try {
       const r = await importar(files, msg => toast(msg, { tone: 'carregando' }))
@@ -66,7 +98,7 @@ export default function App() {
       toast('Erro na importação: ' + (e as Error).message, { tone: 'erro' })
     }
     setImportando(false)
-  }, [importando, atualizar, abrirLoja, toast])
+  }, [importando, email, atualizar, abrirLoja, toast])
 
   useEffect(() => {
     const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); setArrastando(true) } }
@@ -81,6 +113,7 @@ export default function App() {
   const gerado = geradoEm()
 
   return (
+    <SessaoCtx.Provider value={{ remoto, email, pedirLogin: () => setLogin(true) }}>
     <PaletaCtx.Provider value={paleta(dark)}>
       <div className="min-h-screen">
         <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur-xl">
@@ -103,7 +136,13 @@ export default function App() {
                   : <><option value="">Todos os meses</option>{mesesTodos.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}</>}
               </Select>
             </div>}
-            <Button variant="primary" onClick={() => arq.current?.click()} disabled={importando} title="Arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql (ou XMLs de NFC-e). Também dá para arrastar para a página.">
+            {remoto && (email
+              ? <div className="flex items-center gap-1 rounded-xl border border-line bg-surface py-1 pr-1 pl-3 text-xs text-muted" title={email}>
+                  <UserRound className="size-3.5" /><span className="max-w-36 truncate max-sm:hidden">{email}</span>
+                  <Button variant="ghost" size="sm" aria-label="Sair" onClick={() => sb!.auth.signOut()}><LogOut className="size-3.5" /></Button>
+                </div>
+              : <Button onClick={() => setLogin(true)}><LogIn className="size-4" />Entrar</Button>)}
+            <Button variant="primary" onClick={escolherArquivos} disabled={importando} title="Arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql (ou XMLs de NFC-e). Também dá para arrastar para a página.">
               <Upload className="size-4" /><span className="max-sm:hidden">Importar CSV</span><span className="sm:hidden">Importar</span>
             </Button>
             <Button variant="ghost" aria-label={dark ? 'Tema claro' : 'Tema escuro'} size="icon" onClick={() => setDark(!dark)}>
@@ -125,15 +164,30 @@ export default function App() {
                 </h1>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-                {importadas > 0 && (
+                {remoto ? (
+                  <span className="inline-flex items-center gap-1.5" title="Notas guardadas no banco central: todos que abrem o painel veem os mesmos dados. Nenhuma nota pode ser apagada ou alterada.">
+                    <Database className="size-3.5 text-ok" />Banco central · {nf.format(importadas)} notas · protegido contra exclusão
+                  </span>
+                ) : importadas > 0 && (
                   <span className="inline-flex items-center gap-1.5" title={protegido ? 'O navegador foi instruído a não apagar estes dados automaticamente' : 'O navegador pode liberar espaço apagando dados de sites; mantenha os CSVs originais guardados'}>
                     {protegido ? <ShieldCheck className="size-3.5 text-ok" /> : <DatabaseZap className="size-3.5 text-warn" />}
                     {nf.format(importadas)} notas importadas neste navegador{protegido ? ' · armazenamento protegido' : ''}
                   </span>
                 )}
-                {gerado && <span>Dados publicados em {new Date(gerado).toLocaleString('pt-BR')}</span>}
+                {gerado && !remoto && <span>Dados publicados em {new Date(gerado).toLocaleString('pt-BR')}</span>}
               </div>
             </div>
+          )}
+
+          {remoto && email && pendentes.length > 0 && (
+            <Card className="flex flex-wrap items-center gap-4 p-4">
+              <span className="grid size-10 place-items-center rounded-xl bg-warn-soft text-warn"><CloudUpload className="size-5" /></span>
+              <div className="min-w-0 flex-1 text-sm">
+                <b>{pendentes.length} {pendentes.length === 1 ? 'mês publicado ainda não está' : 'meses publicados ainda não estão'} completos no banco central</b>
+                <p className="text-muted">{pendentes.map(p => `${p.loja} ${mesLabel(p.mes)}`).join(' · ')}. Envie para que todos vejam esses dados.</p>
+              </div>
+              <Button variant="primary" onClick={sincronizar} disabled={importando}><CloudUpload className="size-4" />Enviar para o banco</Button>
+            </Card>
           )}
 
           {!lojas ? (
@@ -158,7 +212,9 @@ export default function App() {
             </div>
           </div>
         )}
+        {login && <LoginModal onClose={() => setLogin(false)} />}
       </div>
     </PaletaCtx.Provider>
+    </SessaoCtx.Provider>
   )
 }

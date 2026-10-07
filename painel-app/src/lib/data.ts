@@ -1,4 +1,5 @@
-import { DB } from './db'
+import { DB, xmlDa } from './db'
+import { mesRemoto, remoto, resumoRemoto, xmlRemoto } from './remote'
 
 // Formato de dados/<cnpj>/<mes>.js (gerado pelo Processar.ps1 e pela importação no navegador)
 // nota: [nNF, dhEmi, vNF, vDesc, vICMS, [[tPag, vPag]], infCpl, [[iProd, qCom, vProd, vDesc]], chave]
@@ -77,7 +78,7 @@ const cache: Record<string, Mes> = {}
 export const invalidar = (k: string) => { delete cache[k] }
 export async function loadMes(cnpj: string, mes: string): Promise<Mes> {
   const k = cnpj + '|' + mes
-  if (!cache[k]) cache[k] = prep((await DB.get<RawMes>('mes', k)) || (await loadStatic(cnpj, mes)))
+  if (!cache[k]) cache[k] = prep(remoto ? await mesRemoto(cnpj, mes) : (await DB.get<RawMes>('mes', k)) || (await loadStatic(cnpj, mes)))
   return cache[k]
 }
 
@@ -86,10 +87,36 @@ export const resumoDe = (r: RawMes): Resumo => ({
   total: Math.round(r.notes.reduce((s, n) => s + n[2], 0) * 100) / 100,
 })
 
-// Junta o que foi publicado (dados/) com o que foi importado neste navegador
-export async function montarLojas(): Promise<{ lojas: Loja[]; importadas: number }> {
+export function calcLacunas(notes: RawNote[]) {
+  const ser: Record<string, Set<number>> = {}
+  notes.forEach(n => (ser[n[8].slice(22, 25)] ||= new Set()).add(n[0]))
+  return Object.values(ser).reduce((t, s) => {
+    const a = [...s]
+    return t + a.reduce((x, y) => Math.max(x, y)) - a.reduce((x, y) => Math.min(x, y)) + 1 - a.length
+  }, 0)
+}
+
+export const buscarXml = (chave: string) => remoto ? xmlRemoto(chave) : xmlDa(chave)
+
+// Meses publicados em dados/ que ainda não estão (completos) no banco central
+export interface Pendente { cnpj: string; mes: string; loja: string; notas: number }
+export interface Lojas { lojas: Loja[]; importadas: number; pendentes: Pendente[] }
+
+export async function montarLojas(): Promise<Lojas> {
+  if (remoto) {
+    const rem = await resumoRemoto()
+    const pendentes = STATIC.flatMap(l => l.meses
+      .filter(m => (rem.find(r => r.cnpj === l.cnpj && r.mes === m.mes)?.notas || 0) < m.notas)
+      .map(m => ({ cnpj: l.cnpj, mes: m.mes, loja: l.loja, notas: m.notas })))
+    return { lojas: agrupar([], rem), importadas: rem.reduce((s, r) => s + r.notas, 0), pendentes }
+  }
+  // Sem banco central: junta o que foi publicado (dados/) com o que foi importado neste navegador
   let imp: Resumo[] = []
   try { imp = (await DB.all<RawMes>('mes')).map(resumoDe) } catch { /* sem base local */ }
+  return { lojas: agrupar(STATIC, imp), importadas: imp.reduce((s, r) => s + r.notas, 0), pendentes: [] }
+}
+
+function agrupar(estatico: Loja[], imp: Resumo[]): Loja[] {
   const map = new Map<string, Loja>()
   const add = (cnpj: string, loja: string, end: string, m: LojaMes) => {
     let L = map.get(cnpj)
@@ -97,9 +124,9 @@ export async function montarLojas(): Promise<{ lojas: Loja[]; importadas: number
     const i = L.meses.findIndex(x => x.mes === m.mes)
     if (i >= 0) L.meses[i] = m; else L.meses.push(m)
   }
-  STATIC.forEach(l => l.meses.forEach(m => add(l.cnpj, l.loja, l.end, m)))
+  estatico.forEach(l => l.meses.forEach(m => add(l.cnpj, l.loja, l.end, m)))
   imp.forEach(r => add(r.cnpj, r.loja, r.end, { mes: r.mes, notas: r.notas, total: r.total }))
   const lojas = [...map.values()].sort((a, b) => a.loja.localeCompare(b.loja))
   lojas.forEach(l => l.meses.sort((a, b) => a.mes.localeCompare(b.mes)))
-  return { lojas, importadas: imp.reduce((s, r) => s + r.notas, 0) }
+  return lojas
 }
