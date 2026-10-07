@@ -3,7 +3,7 @@
 --  Rodar uma vez no SQL Editor do projeto (pode rodar de novo sem problema).
 --
 --  Regras:
---   • qualquer pessoa com o link vê os números das notas (lojas, meses, itens, pagamentos)
+--   • (a migração 002_login_e_admin.sql fecha tudo: ver as notas passa a exigir login)
 --   • só usuários com login baixam o XML (o XML pode ter CPF do consumidor - LGPD)
 --   • só usuários com login importam notas
 --   • NINGUÉM apaga nem altera nota ou XML: não há permissão para isso e um

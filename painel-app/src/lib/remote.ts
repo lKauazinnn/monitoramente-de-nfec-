@@ -1,11 +1,37 @@
 // Banco central no Supabase (tabelas de supabase/schema.sql)
 import { createClient } from '@supabase/supabase-js'
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../config'
+import { API_ADMIN, SITE, SUPABASE_ANON_KEY, SUPABASE_URL } from '../config'
 import { calcLacunas, type RawMes, type RawNote, type Resumo } from './data'
 import { gz } from './db'
 
+// Links dos e-mails (convite, recuperação de senha) chegam com #type=...; lido antes do cliente limpar a URL
+export const linkInicial = (() => {
+  const h = new URLSearchParams(location.hash.slice(1)), q = new URLSearchParams(location.search)
+  return { tipo: h.get('type') || q.get('type') || '', erro: h.get('error_description') || q.get('error_description') || '' }
+})()
+if (linkInicial.erro) history.replaceState(null, '', location.pathname)
+
 export const remoto = !!(SUPABASE_URL && SUPABASE_ANON_KEY)
-export const sb = remoto ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, storageKey: 'nfce-auth' } }) : null
+export const sb = remoto ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, storageKey: 'nfce-auth', flowType: 'implicit' } }) : null
+
+// Para onde os links dos e-mails devem voltar
+export const urlRetorno = () => location.protocol === 'file:' ? SITE : location.origin + location.pathname
+
+// Chamada à função /api/admin (servidor), com a sessão do usuário logado
+export async function apiAdmin<T>(corpo: Record<string, unknown>): Promise<T> {
+  const { data } = await cliente().auth.getSession()
+  let r: Response
+  try {
+    r = await fetch(API_ADMIN, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (data.session?.access_token || '') },
+      body: JSON.stringify({ redirectTo: urlRetorno(), ...corpo }),
+    })
+  } catch { throw new Error('Sem conexão com o servidor do painel.') }
+  const j = await r.json().catch(() => ({ erro: `Resposta inválida do servidor (${r.status})` }))
+  if (!r.ok) throw new Error(j.erro || r.statusText)
+  return j as T
+}
 
 const POR_PAGINA = 1000
 const COLUNAS = 'chave,cnpj,mes,loja,endereco,n,dh,total,descontos,icms,pagamentos,info,itens'

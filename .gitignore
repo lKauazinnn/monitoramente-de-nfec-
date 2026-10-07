@@ -1,2 +1,7 @@
 .vercel
 node_modules
+.env*
+!.env.example
+# gerado pelo build (a Vercel compila sozinha com as variáveis de ambiente dela)
+Painel/index.html
+Painel/Painel NFC-e.html

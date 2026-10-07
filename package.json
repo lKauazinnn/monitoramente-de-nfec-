@@ -1,0 +1,11 @@
+{
+  "name": "painel-nfce-cajupar",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix painel-app run build"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.3"
+  }
+}

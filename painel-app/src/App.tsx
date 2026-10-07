@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CloudUpload, Database, DatabaseZap, FileUp, LogIn, LogOut, Moon, ShieldCheck, Sun, Upload, UserRound } from 'lucide-react'
+import type { Session } from '@supabase/supabase-js'
+import { ArrowLeft, CloudUpload, Database, DatabaseZap, FileUp, LoaderCircle, LogOut, Moon, ShieldCheck, Sun, Upload, UserRound } from 'lucide-react'
 import { carregarIndice, geradoEm, montarLojas, type Loja, type Pendente } from './lib/data'
 import { protegerArmazenamento } from './lib/db'
 import { cidade, fmtCnpj, mesLabel, nf } from './lib/format'
 import { enviarPublicados, importar } from './lib/importer'
 import { baixar } from './lib/pdf'
-import { remoto, sb } from './lib/remote'
+import { apiAdmin, linkInicial, remoto, sb } from './lib/remote'
+import { Admin } from './components/Admin'
 import { PaletaCtx, paleta } from './components/charts'
 import { Overview } from './components/Overview'
-import { LoginModal, SessaoCtx } from './components/Sessao'
+import { SessaoCtx, TelaLogin, TelaNovaSenha } from './components/Sessao'
 import { StoreView } from './components/StoreView'
 import { useToast } from './components/Toast'
 import { Button, Card, Empty, Select, Skeleton } from './components/ui'
@@ -26,8 +28,12 @@ export default function App() {
   const [arrastando, setArrastando] = useState(false)
   const [importando, setImportando] = useState(false)
   const [pendentes, setPendentes] = useState<Pendente[]>([])
-  const [email, setEmail] = useState<string | null>(null)
-  const [login, setLogin] = useState(false)
+  const [sessao, setSessao] = useState<Session | null | undefined>(remoto ? undefined : null)
+  const [definirSenha, setDefinirSenha] = useState(remoto && ['recovery', 'invite'].includes(linkInicial.tipo))
+  const [admin, setAdmin] = useState(false)
+  const [tela, setTela] = useState<'painel' | 'admin'>('painel')
+  const email = sessao?.user.email ?? null
+  const uid = sessao?.user.id
   const arq = useRef<HTMLInputElement>(null)
 
   const atualizar = useCallback(async () => {
@@ -44,12 +50,12 @@ export default function App() {
 
   useEffect(() => {
     if (!sb) return
-    sb.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? null))
-    const { data } = sb.auth.onAuthStateChange((_, s) => setEmail(s?.user.email ?? null))
+    sb.auth.getSession().then(({ data }) => setSessao(data.session))
+    const { data } = sb.auth.onAuthStateChange((ev, s) => { setSessao(s); if (ev === 'PASSWORD_RECOVERY') setDefinirSenha(true) })
     return () => data.subscription.unsubscribe()
   }, [])
 
-  const escolherArquivos = () => remoto && !email ? setLogin(true) : arq.current?.click()
+  const escolherArquivos = () => arq.current?.click()
 
   async function sincronizar() {
     setImportando(true)
@@ -69,10 +75,13 @@ export default function App() {
     setV({ loja: cnpj, mes: mes && meses.includes(mes) ? mes : meses[meses.length - 1] })
   }, [lojas])
 
+  // Com banco central, nada é carregado antes do login
   useEffect(() => {
+    if (remoto && !uid) { setLojas(null); setAdmin(false); setTela('painel'); return }
     carregarIndice().then(atualizar).then(ls => { if (ls.length === 1) abrirLoja(ls[0].cnpj, undefined, ls) })
     protegerArmazenamento().then(setProtegido)
-  }, [])
+    if (remoto) apiAdmin<{ admin: boolean }>({ acao: 'eu' }).then(r => setAdmin(r.admin), () => setAdmin(false))
+  }, [uid])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -81,7 +90,6 @@ export default function App() {
 
   const onImport = useCallback(async (files: File[]) => {
     if (importando || !files.length) return
-    if (remoto && !email) { setLogin(true); toast('Entre com seu usuário para importar notas.', { tone: 'erro' }); return }
     setImportando(true)
     try {
       const r = await importar(files, msg => toast(msg, { tone: 'carregando' }))
@@ -98,7 +106,7 @@ export default function App() {
       toast('Erro na importação: ' + (e as Error).message, { tone: 'erro' })
     }
     setImportando(false)
-  }, [importando, email, atualizar, abrirLoja, toast])
+  }, [importando, atualizar, abrirLoja, toast])
 
   useEffect(() => {
     const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); setArrastando(true) } }
@@ -108,12 +116,20 @@ export default function App() {
     return () => { document.removeEventListener('dragover', over); document.removeEventListener('dragleave', leave); document.removeEventListener('drop', drop) }
   }, [onImport])
 
-  const L = lojas?.find(l => l.cnpj === v.loja)
+  if (remoto && sessao === undefined) return <div className="grid min-h-screen place-items-center"><LoaderCircle className="size-6 animate-spin text-accent" /></div>
+  if (remoto && !sessao) return <TelaLogin erroLink={linkInicial.erro} />
+  if (remoto && definirSenha) return (
+    <TelaNovaSenha convite={linkInicial.tipo === 'invite'} onPronto={() => {
+      setDefinirSenha(false); history.replaceState(null, '', location.pathname); toast('Senha salva. Bem-vindo!', { tone: 'ok' })
+    }} />
+  )
+
+  const L = tela === 'admin' ? undefined : lojas?.find(l => l.cnpj === v.loja)
   const mesesTodos = [...new Set((lojas || []).flatMap(l => l.meses.map(m => m.mes)))].sort()
   const gerado = geradoEm()
 
   return (
-    <SessaoCtx.Provider value={{ remoto, email, pedirLogin: () => setLogin(true) }}>
+    <SessaoCtx.Provider value={{ remoto, email, pedirLogin: () => {} }}>
     <PaletaCtx.Provider value={paleta(dark)}>
       <div className="min-h-screen">
         <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur-xl">
@@ -125,7 +141,7 @@ export default function App() {
                 <span className="text-[11px] text-muted">CAJUPAR</span>
               </span>
             </button>
-            {lojas && lojas.length > 0 && <div className="order-last flex w-full gap-2 lg:order-none lg:w-auto">
+            {tela === 'painel' && lojas && lojas.length > 0 && <div className="order-last flex w-full gap-2 lg:order-none lg:w-auto">
               <Select className="min-w-0 flex-1 lg:w-64 lg:flex-none" value={v.loja} onChange={e => e.target.value === 'todas' ? setV({ loja: 'todas', mes: '' }) : abrirLoja(e.target.value, v.mes)} aria-label="Loja">
                 <option value="todas">Todas as lojas ({lojas.length})</option>
                 {lojas.map(l => <option key={l.cnpj} value={l.cnpj}>{l.loja} · {cidade(l.end)}</option>)}
@@ -136,15 +152,20 @@ export default function App() {
                   : <><option value="">Todos os meses</option>{mesesTodos.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}</>}
               </Select>
             </div>}
-            {remoto && (email
-              ? <div className="flex items-center gap-1 rounded-xl border border-line bg-surface py-1 pr-1 pl-3 text-xs text-muted" title={email}>
-                  <UserRound className="size-3.5" /><span className="max-w-36 truncate max-sm:hidden">{email}</span>
-                  <Button variant="ghost" size="sm" aria-label="Sair" onClick={() => sb!.auth.signOut()}><LogOut className="size-3.5" /></Button>
-                </div>
-              : <Button onClick={() => setLogin(true)}><LogIn className="size-4" />Entrar</Button>)}
-            <Button variant="primary" onClick={escolherArquivos} disabled={importando} title="Arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql (ou XMLs de NFC-e). Também dá para arrastar para a página.">
+            {admin && (
+              <Button variant={tela === 'admin' ? 'primary' : 'secondary'} onClick={() => setTela(tela === 'admin' ? 'painel' : 'admin')}>
+                {tela === 'admin' ? <><ArrowLeft className="size-4" />Painel</> : <><ShieldCheck className="size-4" />Admin</>}
+              </Button>
+            )}
+            {remoto && email && (
+              <div className="flex h-10 items-center gap-1 rounded-xl border border-line bg-surface pr-1 pl-3 text-xs text-muted" title={email}>
+                <UserRound className="size-3.5" /><span className="max-w-40 truncate max-sm:hidden">{email}</span>
+                <Button variant="ghost" size="sm" aria-label="Sair" title="Sair" onClick={() => sb!.auth.signOut()}><LogOut className="size-3.5" /></Button>
+              </div>
+            )}
+            {tela === 'painel' && <Button variant="primary" onClick={escolherArquivos} disabled={importando} title="Arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql (ou XMLs de NFC-e). Também dá para arrastar para a página.">
               <Upload className="size-4" /><span className="max-sm:hidden">Importar CSV</span><span className="sm:hidden">Importar</span>
-            </Button>
+            </Button>}
             <Button variant="ghost" aria-label={dark ? 'Tema claro' : 'Tema escuro'} size="icon" onClick={() => setDark(!dark)}>
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
@@ -153,6 +174,13 @@ export default function App() {
         </header>
 
         <main className="mx-auto flex max-w-[1440px] flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+          {tela === 'admin' && uid ? (<>
+            <div>
+              <p className="font-mono text-[11px] tracking-wider text-muted uppercase">Administração</p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">Usuários e acessos</h1>
+            </div>
+            <Admin meuId={uid} />
+          </>) : <>
           {lojas && lojas.length > 0 && (
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div className="min-w-0">
@@ -201,6 +229,7 @@ export default function App() {
           ) : (
             <Overview lojas={lojas} mes={v.mes} setMes={m => setV({ ...v, mes: m })} abrirLoja={c => abrirLoja(c, v.mes)} />
           )}
+          </>}
         </main>
 
         {arrastando && (
@@ -212,7 +241,6 @@ export default function App() {
             </div>
           </div>
         )}
-        {login && <LoginModal onClose={() => setLogin(false)} />}
       </div>
     </PaletaCtx.Provider>
     </SessaoCtx.Provider>
