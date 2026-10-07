@@ -28,6 +28,8 @@ export const cidade = (end: string) => (end.split(',').pop() || '').trim()
 // endereço no formato "Rua, nº - BAIRRO, CIDADE/UF"
 export const bairro = (end: string) => ((end.split(' - ')[1] || '').split(',')[0] || '').trim()
 const titulo = (s: string) => s.toLowerCase().replace(/(^|[\s/-])(\p{L})/gu, (_, a, c) => a + c.toUpperCase()).replace(/ (De|Da|Do|Das|Dos|E) /g, w => w.toLowerCase())
-// Nome da unidade quando o admin não definiu um apelido: "Caju" + bairro (ex.: Caju Asa Norte)
-export const nomeAuto = (loja: string, end: string) => { const b = bairro(end); return b ? 'Caju ' + titulo(b) : titulo(loja) }
+// Nome da unidade quando o admin não definiu um apelido: marca + bairro
+// (ex.: BOTECO CAJU LIMAO, Asa Norte -> Caju Asa Norte; FOSTER BURGER, Asa Sul -> Foster Burger Asa Sul)
+const marca = (loja: string) => /caju/i.test(loja) ? 'Caju' : titulo(loja.trim())
+export const nomeAuto = (loja: string, end: string) => { const b = bairro(end); return b ? `${marca(loja)} ${titulo(b)}` : titulo(loja) }
 export const sum = <T,>(a: T[], f: (x: T) => number) => a.reduce((s, x) => s + f(x), 0)

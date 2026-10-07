@@ -233,7 +233,7 @@ function LojasCard({ lojas, onLojas }: { lojas: Loja[]; onLojas: () => Promise<u
     <Card>
       <div className="px-5 pt-5 pb-4">
         <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight"><Store className="size-4 text-muted" />Lojas</h2>
-        <p className="text-xs text-muted">Nome que aparece no painel para cada unidade. Em branco, usa "Caju + bairro" do endereço da nota.</p>
+        <p className="text-xs text-muted">Nome que aparece no painel para cada unidade. Em branco, usa a marca + o bairro do endereço da nota.</p>
       </div>
       <ul className="border-t border-line">
         {lojas.map(l => {
