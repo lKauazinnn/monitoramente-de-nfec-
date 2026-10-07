@@ -1,0 +1,164 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { DatabaseZap, FileUp, Moon, ShieldCheck, Sun, Upload } from 'lucide-react'
+import { carregarIndice, geradoEm, montarLojas, type Loja } from './lib/data'
+import { protegerArmazenamento } from './lib/db'
+import { cidade, fmtCnpj, mesLabel, nf } from './lib/format'
+import { importar } from './lib/importer'
+import { baixar } from './lib/pdf'
+import { PaletaCtx, paleta } from './components/charts'
+import { Overview } from './components/Overview'
+import { StoreView } from './components/StoreView'
+import { useToast } from './components/Toast'
+import { Button, Empty, Select, Skeleton } from './components/ui'
+
+interface Vista { loja: string; mes: string }
+
+export default function App() {
+  const toast = useToast()
+  const [lojas, setLojas] = useState<Loja[] | null>(null)
+  const [importadas, setImportadas] = useState(0)
+  const [protegido, setProtegido] = useState(false)
+  const [v, setV] = useState<Vista>({ loja: 'todas', mes: '' })
+  const [versao, setVersao] = useState(0)
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
+  const [arrastando, setArrastando] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const arq = useRef<HTMLInputElement>(null)
+
+  const atualizar = useCallback(async () => {
+    const r = await montarLojas()
+    setLojas(r.lojas); setImportadas(r.importadas)
+    return r.lojas
+  }, [])
+
+  const abrirLoja = useCallback((cnpj: string, mes?: string, ls?: Loja[]) => {
+    const L = (ls || lojas || []).find(l => l.cnpj === cnpj)
+    if (!L) return setV({ loja: 'todas', mes: '' })
+    const meses = L.meses.map(m => m.mes)
+    setV({ loja: cnpj, mes: mes && meses.includes(mes) ? mes : meses[meses.length - 1] })
+  }, [lojas])
+
+  useEffect(() => {
+    carregarIndice().then(atualizar).then(ls => { if (ls.length === 1) abrirLoja(ls[0].cnpj, undefined, ls) })
+    protegerArmazenamento().then(setProtegido)
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    try { localStorage.setItem('tema', dark ? 'dark' : 'light') } catch { /* sem localStorage */ }
+  }, [dark])
+
+  const onImport = useCallback(async (files: File[]) => {
+    if (importando || !files.length) return
+    setImportando(true)
+    try {
+      const r = await importar(files, msg => toast(msg, { tone: 'carregando' }))
+      const ls = await atualizar()
+      setProtegido(await protegerArmazenamento())
+      setVersao(x => x + 1)
+      const log = r.erros.join('\r\n')
+      toast(<><b>Importação concluída</b> em {r.segundos}s: {nf.format(r.ok)} notas em {r.meses.length} loja/mês.
+        {r.erros.length > 0 && <span className="text-danger"> {nf.format(r.erros.length)} com erro.</span>}</>,
+        { tone: r.erros.length ? 'erro' : 'ok', fixo: r.erros.length > 0, acao: r.erros.length ? { label: 'Baixar log de erros', onClick: () => baixar(`importacao-${new Date().toISOString().slice(0, 19).replace(/\D/g, '')}.log`, log, 'text/plain') } : undefined })
+      const cnpjs = [...new Set(r.meses.map(m => m.cnpj))]
+      if (cnpjs.length === 1) abrirLoja(cnpjs[0], r.meses.map(m => m.mes).sort().pop(), ls)
+    } catch (e) {
+      toast('Erro na importação: ' + (e as Error).message, { tone: 'erro' })
+    }
+    setImportando(false)
+  }, [importando, atualizar, abrirLoja, toast])
+
+  useEffect(() => {
+    const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); setArrastando(true) } }
+    const leave = (e: DragEvent) => { if (!e.relatedTarget) setArrastando(false) }
+    const drop = (e: DragEvent) => { if (!e.dataTransfer?.files.length) return; e.preventDefault(); setArrastando(false); onImport([...e.dataTransfer.files]) }
+    document.addEventListener('dragover', over); document.addEventListener('dragleave', leave); document.addEventListener('drop', drop)
+    return () => { document.removeEventListener('dragover', over); document.removeEventListener('dragleave', leave); document.removeEventListener('drop', drop) }
+  }, [onImport])
+
+  const L = lojas?.find(l => l.cnpj === v.loja)
+  const mesesTodos = [...new Set((lojas || []).flatMap(l => l.meses.map(m => m.mes)))].sort()
+  const gerado = geradoEm()
+
+  return (
+    <PaletaCtx.Provider value={paleta(dark)}>
+      <div className="min-h-screen">
+        <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+            <button onClick={() => setV({ loja: 'todas', mes: '' })} className="mr-auto flex cursor-pointer items-center gap-2.5">
+              <span className="grid size-9 place-items-center rounded-xl bg-accent text-sm font-bold text-white">N</span>
+              <span className="flex flex-col items-start leading-tight">
+                <span className="text-sm font-semibold tracking-tight">Painel NFC-e</span>
+                <span className="text-[11px] text-muted">CAJUPAR</span>
+              </span>
+            </button>
+            {lojas && lojas.length > 0 && <div className="order-last flex w-full gap-2 lg:order-none lg:w-auto">
+              <Select className="min-w-0 flex-1 lg:w-64 lg:flex-none" value={v.loja} onChange={e => e.target.value === 'todas' ? setV({ loja: 'todas', mes: '' }) : abrirLoja(e.target.value, v.mes)} aria-label="Loja">
+                <option value="todas">Todas as lojas ({lojas.length})</option>
+                {lojas.map(l => <option key={l.cnpj} value={l.cnpj}>{l.loja} · {cidade(l.end)}</option>)}
+              </Select>
+              <Select className="min-w-0 flex-1 lg:w-52 lg:flex-none" value={v.mes} aria-label="Mês"
+                onChange={e => v.loja === 'todas' ? setV({ ...v, mes: e.target.value }) : abrirLoja(v.loja, e.target.value)}>
+                {L ? L.meses.map(m => <option key={m.mes} value={m.mes}>{mesLabel(m.mes)} · {nf.format(m.notas)} notas</option>)
+                  : <><option value="">Todos os meses</option>{mesesTodos.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}</>}
+              </Select>
+            </div>}
+            <Button variant="primary" onClick={() => arq.current?.click()} disabled={importando} title="Arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql (ou XMLs de NFC-e). Também dá para arrastar para a página.">
+              <Upload className="size-4" /><span className="max-sm:hidden">Importar CSV</span><span className="sm:hidden">Importar</span>
+            </Button>
+            <Button variant="ghost" aria-label={dark ? 'Tema claro' : 'Tema escuro'} size="icon" onClick={() => setDark(!dark)}>
+              {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            </Button>
+            <input ref={arq} type="file" multiple accept=".csv,.txt,.xml" hidden onChange={e => { const f = [...(e.target.files || [])]; e.target.value = ''; onImport(f) }} />
+          </div>
+        </header>
+
+        <main className="mx-auto flex max-w-[1440px] flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+          {lojas && lojas.length > 0 && (
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-mono text-[11px] tracking-wider text-muted uppercase">
+                  {L ? `CNPJ ${fmtCnpj(L.cnpj)} · ${L.end}` : 'Visão geral da rede'}
+                </p>
+                <h1 className="mt-1 truncate text-3xl font-semibold tracking-tight sm:text-4xl">
+                  {L ? L.loja : 'Todas as lojas'} {L && <span className="text-accent">{mesLabel(v.mes)}</span>}
+                </h1>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+                {importadas > 0 && (
+                  <span className="inline-flex items-center gap-1.5" title={protegido ? 'O navegador foi instruído a não apagar estes dados automaticamente' : 'O navegador pode liberar espaço apagando dados de sites; mantenha os CSVs originais guardados'}>
+                    {protegido ? <ShieldCheck className="size-3.5 text-ok" /> : <DatabaseZap className="size-3.5 text-warn" />}
+                    {nf.format(importadas)} notas importadas neste navegador{protegido ? ' · armazenamento protegido' : ''}
+                  </span>
+                )}
+                {gerado && <span>Dados publicados em {new Date(gerado).toLocaleString('pt-BR')}</span>}
+              </div>
+            </div>
+          )}
+
+          {!lojas ? (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[118px]" />)}</div>
+          ) : !lojas.length ? (
+            <Empty icon={<FileUp className="size-6" />} title="Nenhum dado ainda">
+              Clique em <b>Importar CSV</b> ou arraste para esta página os arquivos .csv salvos do SSMS com a consulta <span className="font-mono">CONSULTA-SSMS.sql</span>.
+            </Empty>
+          ) : L ? (
+            <StoreView key={`${L.cnpj}|${v.mes}|${versao}`} loja={L} mes={v.mes} />
+          ) : (
+            <Overview lojas={lojas} mes={v.mes} setMes={m => setV({ ...v, mes: m })} abrirLoja={c => abrirLoja(c, v.mes)} />
+          )}
+        </main>
+
+        {arrastando && (
+          <div className="anim-fade pointer-events-none fixed inset-0 z-50 grid place-items-center bg-bg/80 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed border-accent bg-surface px-16 py-12 text-center shadow-2xl">
+              <Upload className="size-8 text-accent" />
+              <p className="text-lg font-semibold">Solte os CSVs do SSMS para importar</p>
+              <p className="text-sm text-muted">As notas são somadas às que já existem. Nada é apagado.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </PaletaCtx.Provider>
+  )
+}
