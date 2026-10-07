@@ -137,7 +137,7 @@ export default function App() {
             <button onClick={() => setV({ loja: 'todas', mes: '' })} className="mr-auto flex cursor-pointer items-center gap-2.5">
               <span className="grid size-9 place-items-center rounded-xl bg-accent text-sm font-bold text-white">N</span>
               <span className="flex flex-col items-start leading-tight">
-                <span className="text-sm font-semibold tracking-tight">Painel NFC-e</span>
+                <span className="text-sm font-semibold tracking-tight">NF-e Control</span>
                 <span className="text-[11px] text-muted">CAJUPAR</span>
               </span>
             </button>

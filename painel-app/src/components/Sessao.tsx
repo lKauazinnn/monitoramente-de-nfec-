@@ -43,7 +43,7 @@ function Moldura({ children }: { children: ReactNode }) {
         <div className="pointer-events-none absolute -bottom-48 -left-24 size-[420px] rounded-full bg-[#F59E0B] opacity-15 blur-[120px]" />
         <div className="relative flex items-center gap-3">
           <span className="grid size-10 place-items-center rounded-xl bg-[#E4572E] font-bold">N</span>
-          <div className="leading-tight"><div className="font-semibold">Painel NFC-e</div><div className="text-xs text-white/60">CAJUPAR</div></div>
+          <div className="leading-tight"><div className="font-semibold">NF-e Control</div><div className="text-xs text-white/60">CAJUPAR</div></div>
         </div>
         <div className="relative max-w-md">
           <h1 className="text-4xl leading-[1.1] font-semibold tracking-tight">Todas as notas das lojas, num só lugar.</h1>
@@ -59,7 +59,7 @@ function Moldura({ children }: { children: ReactNode }) {
         <div className="anim-entrar w-full max-w-sm">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             <span className="grid size-10 place-items-center rounded-xl bg-accent font-bold text-white">N</span>
-            <div className="leading-tight"><div className="font-semibold">Painel NFC-e</div><div className="text-xs text-muted">CAJUPAR</div></div>
+            <div className="leading-tight"><div className="font-semibold">NF-e Control</div><div className="text-xs text-muted">CAJUPAR</div></div>
           </div>
           {children}
         </div>
@@ -164,7 +164,7 @@ export function TelaNovaSenha({ convite, onPronto }: { convite: boolean; onPront
     <Moldura>
       <span className="grid size-12 place-items-center rounded-2xl bg-accent-soft text-accent"><KeyRound className="size-6" /></span>
       <h2 className="mt-5 text-2xl font-semibold tracking-tight">{convite ? 'Bem-vindo! Crie sua senha' : 'Crie uma nova senha'}</h2>
-      <p className="mt-1.5 text-sm text-muted">{convite ? 'Você foi convidado para o Painel NFC-e. Defina a senha que vai usar para entrar.' : 'Escolha a nova senha da sua conta.'}</p>
+      <p className="mt-1.5 text-sm text-muted">{convite ? 'Você foi convidado para o NF-e Control. Defina a senha que vai usar para entrar.' : 'Escolha a nova senha da sua conta.'}</p>
       <form onSubmit={salvar} className="mt-8 flex flex-col gap-4">
         <label className="flex flex-col gap-1.5 text-sm font-medium">Nova senha
           <Senha value={senha} onChange={setSenha} autoComplete="new-password" autoFocus />
