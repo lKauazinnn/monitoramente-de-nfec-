@@ -60,13 +60,29 @@ export function modeloDoPainel(n: Note, D: Mes): ModeloPdf {
   }
 }
 
-export async function gerarPdf(m: ModeloPdf) {
-  await prepararPdf()
-  const { jsPDF } = window.jspdf
-  const W = 80, M = 4, CW = W - 2 * M
-  const v2 = (v: number) => (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const dh = (s: string) => s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)} ${s.slice(11, 19)}` : ''
-  const desenhar = (doc: any) => {
+// Nota vinda da busca (nfce_buscar), sem o XML: espelho com os dados do banco
+export interface LinhaNota {
+  chave: string; cnpj: string; loja: string; endereco: string; n: number; dh: string; total: number; descontos: number
+  pagamentos: [string, number][]; info: string; itens: [string, string, number, number, number][]
+}
+export function modeloDaLinha(n: LinhaNota): ModeloPdf {
+  const pago = n.pagamentos.reduce((s, p) => s + +p[1], 0)
+  return {
+    espelho: true, razao: n.loja, fant: '', cnpj: n.cnpj, ie: '', end: n.endereco, nNF: n.n, serie: String(+n.chave.slice(22, 25)), dhEmi: n.dh, tpAmb: '1', tpEmis: n.chave[34],
+    itens: n.itens.map(([c, x, q, v, d]) => ({ c, x, q: +q, u: '', vu: +v / (+q || 1), v: +v, d: +d })),
+    vProd: n.itens.reduce((s, i) => s + +i[3], 0), vDesc: +n.descontos, vOutro: 0, vNF: +n.total, vTotTrib: 0,
+    pags: n.pagamentos.map(([t, v]) => ({ t, v: +v })), troco: Math.max(0, Math.round((pago - n.total) * 100) / 100),
+    dest: null, qr: '', urlChave: '', chave: n.chave, nProt: '', dhRecbto: '', infCpl: n.info || '',
+  }
+}
+
+const W = 80, M = 4, CW = W - 2 * M
+const v2 = (v: number) => (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const dh = (s: string) => s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)} ${s.slice(11, 19)}` : ''
+
+// Desenha o DANFE a partir do topo da página atual e devolve a altura usada
+function desenhar(doc: any, m: ModeloPdf) {
+  {
     let y = M + 3
     const fonte = (s: number, st = 'normal') => { doc.setFont('helvetica', st); doc.setFontSize(s) }
     const centro = (txt: string, s = 7, st?: string) => { fonte(s, st); for (const l of doc.splitTextToSize(String(txt), CW)) { doc.text(l, W / 2, y, { align: 'center' }); y += s * .42 } }
@@ -122,10 +138,29 @@ export async function gerarPdf(m: ModeloPdf) {
     if (m.infCpl) { linha(); centro(m.infCpl, 6) }
     return y
   }
-  const altura = desenhar(new jsPDF({ unit: 'mm', format: [W, 3000] })) + M
-  const doc = new jsPDF({ unit: 'mm', format: [W, Math.max(altura, 90)] })
-  desenhar(doc)
+}
+
+const altura = (m: ModeloPdf) => Math.max(desenhar(new window.jspdf.jsPDF({ unit: 'mm', format: [W, 3000] }), m) + M, 90)
+
+export async function gerarPdf(m: ModeloPdf) {
+  await prepararPdf()
+  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: [W, altura(m)] })
+  desenhar(doc, m)
   doc.save(`NFCe-${m.chave}.pdf`)
+}
+
+// Várias notas num PDF só (uma página por nota, cada uma com a altura do seu cupom)
+export async function gerarPdfLote(modelos: ModeloPdf[], nome: string, progresso?: (i: number) => void) {
+  await prepararPdf()
+  let doc: any = null
+  for (let i = 0; i < modelos.length; i++) {
+    const h = altura(modelos[i])
+    if (!doc) doc = new window.jspdf.jsPDF({ unit: 'mm', format: [W, h] })
+    else doc.addPage([W, h])
+    desenhar(doc, modelos[i])
+    if (i % 20 === 0) { progresso?.(i); await new Promise(r => setTimeout(r)) }
+  }
+  doc?.save(nome)
 }
 
 export function baixar(nome: string, dados: Blob | string, tipo = 'application/octet-stream') {

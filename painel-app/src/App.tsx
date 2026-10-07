@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ArrowLeft, CloudUpload, Database, DatabaseZap, FileUp, LoaderCircle, LogOut, Moon, ShieldCheck, Sun, Upload, UserRound } from 'lucide-react'
+import { ChartColumnBig, CloudUpload, Database, DatabaseZap, FileUp, LayoutDashboard, LoaderCircle, LogOut, Moon, ReceiptText, ShieldCheck, Sun, Upload, UserRound } from 'lucide-react'
 import { carregarIndice, geradoEm, montarLojas, type Loja, type Pendente } from './lib/data'
 import { protegerArmazenamento } from './lib/db'
 import { cidade, fmtCnpj, mesLabel, nf } from './lib/format'
@@ -8,6 +8,8 @@ import { enviarPublicados, importar } from './lib/importer'
 import { baixar } from './lib/pdf'
 import { apiAdmin, linkInicial, remoto, sb } from './lib/remote'
 import { Admin } from './components/Admin'
+import { Busca } from './components/Busca'
+import { Comparativo } from './components/Comparativo'
 import { PaletaCtx, paleta } from './components/charts'
 import { Overview } from './components/Overview'
 import { SessaoCtx, TelaLogin, TelaNovaSenha } from './components/Sessao'
@@ -16,6 +18,11 @@ import { useToast } from './components/Toast'
 import { Button, Card, Empty, Select, Skeleton } from './components/ui'
 
 interface Vista { loja: string; mes: string }
+type Tela = 'painel' | 'notas' | 'comparativo' | 'admin'
+const ABAS: { k: Tela; l: string; I: typeof LayoutDashboard }[] = [
+  { k: 'painel', l: 'Painel', I: LayoutDashboard }, { k: 'notas', l: 'Notas', I: ReceiptText },
+  { k: 'comparativo', l: 'Comparativo', I: ChartColumnBig }, { k: 'admin', l: 'Admin', I: ShieldCheck },
+]
 
 export default function App() {
   const toast = useToast()
@@ -31,7 +38,7 @@ export default function App() {
   const [sessao, setSessao] = useState<Session | null | undefined>(remoto ? undefined : null)
   const [definirSenha, setDefinirSenha] = useState(remoto && ['recovery', 'invite'].includes(linkInicial.tipo))
   const [admin, setAdmin] = useState(false)
-  const [tela, setTela] = useState<'painel' | 'admin'>('painel')
+  const [tela, setTela] = useState<Tela>('painel')
   const email = sessao?.user.email ?? null
   const uid = sessao?.user.id
   const arq = useRef<HTMLInputElement>(null)
@@ -124,7 +131,7 @@ export default function App() {
     }} />
   )
 
-  const L = tela === 'admin' ? undefined : lojas?.find(l => l.cnpj === v.loja)
+  const L = tela !== 'painel' ? undefined : lojas?.find(l => l.cnpj === v.loja)
   const mesesTodos = [...new Set((lojas || []).flatMap(l => l.meses.map(m => m.mes)))].sort()
   const gerado = geradoEm()
 
@@ -134,7 +141,7 @@ export default function App() {
       <div className="min-h-screen">
         <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur-xl">
           <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-            <button onClick={() => setV({ loja: 'todas', mes: '' })} className="mr-auto flex cursor-pointer items-center gap-2.5">
+            <button onClick={() => { setTela('painel'); setV({ loja: 'todas', mes: '' }) }} className="mr-auto flex cursor-pointer items-center gap-2.5">
               <span className="grid size-9 place-items-center rounded-xl bg-accent text-sm font-bold text-white">N</span>
               <span className="flex flex-col items-start leading-tight">
                 <span className="text-sm font-semibold tracking-tight">NF-e Control</span>
@@ -152,11 +159,6 @@ export default function App() {
                   : <><option value="">Todos os meses</option>{mesesTodos.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}</>}
               </Select>
             </div>}
-            {admin && (
-              <Button variant={tela === 'admin' ? 'primary' : 'secondary'} onClick={() => setTela(tela === 'admin' ? 'painel' : 'admin')}>
-                {tela === 'admin' ? <><ArrowLeft className="size-4" />Painel</> : <><ShieldCheck className="size-4" />Admin</>}
-              </Button>
-            )}
             {remoto && email && (
               <div className="flex h-10 items-center gap-1 rounded-xl border border-line bg-surface pr-1 pl-3 text-xs text-muted" title={email}>
                 <UserRound className="size-3.5" /><span className="max-w-40 truncate max-sm:hidden">{email}</span>
@@ -171,6 +173,16 @@ export default function App() {
             </Button>
             <input ref={arq} type="file" multiple accept=".csv,.txt,.xml" hidden onChange={e => { const f = [...(e.target.files || [])]; e.target.value = ''; onImport(f) }} />
           </div>
+          {remoto && email && (
+            <nav className="scroll-thin mx-auto flex max-w-[1440px] gap-1 overflow-x-auto px-4 sm:px-6" aria-label="Seções">
+              {ABAS.filter(a => a.k !== 'admin' || admin).map(({ k, l, I: Icone }) => (
+                <button key={k} onClick={() => setTela(k)} aria-current={tela === k ? 'page' : undefined}
+                  className={'-mb-px flex shrink-0 cursor-pointer items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ' + (tela === k ? 'border-accent text-fg' : 'border-transparent text-muted hover:text-fg')}>
+                  <Icone className="size-4" />{l}
+                </button>
+              ))}
+            </nav>
+          )}
         </header>
 
         <main className="mx-auto flex max-w-[1440px] flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -180,6 +192,18 @@ export default function App() {
               <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">Usuários e acessos</h1>
             </div>
             <Admin meuId={uid} lojas={lojas || []} onLojas={atualizar} />
+          </>) : tela === 'notas' ? (<>
+            <div>
+              <p className="font-mono text-[11px] tracking-wider text-muted uppercase">Notas fiscais</p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">Buscar notas</h1>
+            </div>
+            {lojas ? <Busca lojas={lojas} /> : <Skeleton className="h-96" />}
+          </>) : tela === 'comparativo' ? (<>
+            <div>
+              <p className="font-mono text-[11px] tracking-wider text-muted uppercase">Análise</p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">Comparativo mensal</h1>
+            </div>
+            {lojas?.length ? <Comparativo lojas={lojas} /> : <Skeleton className="h-96" />}
           </>) : <>
           {lojas && lojas.length > 0 && (
             <div className="flex flex-wrap items-end justify-between gap-4">
