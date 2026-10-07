@@ -13,6 +13,16 @@ const ORIGENS = ['https://monitoramente-de-nfec-phi.vercel.app', 'null'] // 'nul
 const ehAdmin = u => !!u && (ADMINS.includes((u.email || '').toLowerCase()) || u.app_metadata?.papel === 'admin')
 const papelDe = u => ehAdmin(u) ? 'admin' : 'usuario'
 const desativado = u => !!u.banned_until && new Date(u.banned_until) > new Date()
+// Erros do Supabase Auth em português, com o que fazer
+function traduzir(m = '') {
+  if (/already been registered|already registered|email_exists/i.test(m)) return 'Já existe um usuário com este e-mail. Procure-o na lista (pode estar desativado).'
+  if (/sending (invite|confirmation|recovery|magic)|smtp|rate limit|over_email_send_rate_limit|email.*not authorized/i.test(m))
+    return 'O Supabase não conseguiu enviar o e-mail (SMTP não configurado ou limite de envios por hora atingido). Use "Definir senha agora" e passe a senha para a pessoa, ou configure o SMTP em Authentication > Emails.'
+  if (/password/i.test(m) && /(at least|characters|weak|should contain|requirements)/i.test(m)) return 'Senha recusada pelas regras do Supabase: use pelo menos 8 caracteres com letras maiúsculas, minúsculas e números.'
+  if (/invalid format|validate email|invalid email/i.test(m)) return 'E-mail inválido.'
+  if (/not found/i.test(m)) return 'Usuário não encontrado.'
+  return m
+}
 const emailOk = e => typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim())
 
 function resumo(u, imp) {
@@ -113,6 +123,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ erro: 'Ação desconhecida' })
     }
   } catch (e) {
-    return res.status(400).json({ erro: e?.message || String(e) })
+    console.error('[admin]', acao, e?.code || '', e?.message || e)
+    return res.status(400).json({ erro: traduzir(e?.message || String(e)) })
   }
 }

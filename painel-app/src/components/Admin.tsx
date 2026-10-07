@@ -152,7 +152,7 @@ export function Admin({ meuId, lojas, onLojas }: { meuId: string; lojas: Loja[];
 
 function NovoUsuario({ onClose, onCriado }: { onClose: () => void; onCriado: () => void }) {
   const toast = useToast()
-  const [modo, setModo] = useState<'convidar' | 'criar'>('convidar')
+  const [modo, setModo] = useState<'convidar' | 'criar'>('criar')
   const [f, setF] = useState({ nome: '', email: '', papel: 'usuario', senha: '' })
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -181,7 +181,7 @@ function NovoUsuario({ onClose, onCriado }: { onClose: () => void; onCriado: () 
           </div>
           <button type="button" aria-label="Fechar" onClick={onClose} className="cursor-pointer rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-fg"><X className="size-5" /></button>
         </div>
-        <Segmented value={modo} onChange={setModo} options={[['convidar', 'Convidar por e-mail'], ['criar', 'Definir senha agora']]} />
+        <Segmented value={modo} onChange={setModo} options={[['criar', 'Definir senha agora'], ['convidar', 'Convidar por e-mail']]} />
         <label className="flex flex-col gap-1.5 text-sm font-medium">Nome
           <input className={campo} value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} placeholder="Nome e sobrenome" autoFocus />
         </label>
