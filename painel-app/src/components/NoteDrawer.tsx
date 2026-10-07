@@ -1,4 +1,5 @@
 import { useContext, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { FileCode2, FileDown, LoaderCircle, LogIn, X } from 'lucide-react'
 import { buscarXml, type Mes, type Note } from '../lib/data'
 import { brl, payName, qf } from '../lib/format'
@@ -43,7 +44,7 @@ export function NoteDrawer({ note: n, mes: D, onClose }: { note: Note; mes: Mes;
   const bruto = n.items.reduce((s, i) => s + i.v, 0)
   const resumo: [string, number][] = [['Subtotal', bruto], ['Desconto', n.desc], ['ICMS', n.icms]]
 
-  return (
+  return createPortal(
     <>
       <div className="anim-fade fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
       <aside className="anim-gaveta fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-line bg-surface shadow-2xl" role="dialog" aria-label={`NFC-e ${n.n}`}>
@@ -91,6 +92,7 @@ export function NoteDrawer({ note: n, mes: D, onClose }: { note: Note; mes: Mes;
           <p className="mt-4 font-mono text-[10px] break-all text-subtle">Chave {n.chave}</p>
         </div>
       </aside>
-    </>
+    </>,
+    document.body,
   )
 }

@@ -1,10 +1,11 @@
 import { useContext, useEffect, useMemo, useState } from 'react'
-import { BadgePercent, CalendarDays, CircleAlert, HandCoins, Landmark, Receipt, Ticket, Wallet, X } from 'lucide-react'
+import { BadgePercent, CalendarDays, ChartColumn, CircleAlert, HandCoins, Landmark, Receipt, Ticket, Wallet, X } from 'lucide-react'
 import { CUT, loadMes, type Loja, type Mes, type Note } from '../lib/data'
 import { brl, brl0, dayLabel, mesLabel, nf, payColor, payName, pct, qf, qf1, sum } from '../lib/format'
 import { Barras, PaletaCtx, Rosca } from './charts'
 import { NoteDrawer } from './NoteDrawer'
 import { NotesTable } from './NotesTable'
+import { ProductDrawer } from './ProductDrawer'
 import { Badge, Button, Card, CardHeader, Empty, Kpi, Segmented, Skeleton } from './ui'
 
 type Canal = 'all' | 'salao' | 'entrega'
@@ -16,6 +17,7 @@ export function StoreView({ loja, mes }: { loja: Loja; mes: string }) {
   const [day, setDay] = useState<string | null>(null)
   const [sort, setSort] = useState<'v' | 'q'>('v')
   const [sel, setSel] = useState<Note | null>(null)
+  const [prod, setProd] = useState<number | null>(null)
   const c = useContext(PaletaCtx)
 
   useEffect(() => {
@@ -132,10 +134,11 @@ export function StoreView({ loja, mes }: { loja: Loja; mes: string }) {
           </div>
         </Card>
         <Card>
-          <CardHeader title="Produtos mais vendidos" action={<Segmented size="sm" value={sort} onChange={setSort} options={[['v', 'Receita'], ['q', 'Quantidade']]} />} />
-          <ol className="flex flex-col p-5 pt-3">
+          <CardHeader title="Produtos mais vendidos" hint="Clique em um produto para ver o horário e o dia de pico" action={<Segmented size="sm" value={sort} onChange={setSort} options={[['v', 'Receita'], ['q', 'Quantidade']]} />} />
+          <ol className="flex flex-col p-3 pt-2">
             {produtos.map(([p, x], i) => (
-              <li key={p} className="flex items-center gap-3 py-1.5">
+              <li key={p}>
+               <button onClick={() => setProd(+p)} className="group flex w-full cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-surface-2">
                 <span className="num w-5 text-xs text-subtle">{i + 1}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -144,6 +147,8 @@ export function StoreView({ loja, mes }: { loja: Loja; mes: string }) {
                   </div>
                   <div className="mt-1.5 h-1.5 rounded-full bg-surface-3"><div className="h-full rounded-full bg-accent" style={{ width: `${(x[sort] / pmax) * 100}%` }} /></div>
                 </div>
+                <ChartColumn className="size-4 shrink-0 text-subtle opacity-0 transition-opacity group-hover:opacity-100" />
+               </button>
               </li>
             ))}
           </ol>
@@ -152,6 +157,10 @@ export function StoreView({ loja, mes }: { loja: Loja; mes: string }) {
 
       <NotesTable key={canal + (day || '')} notes={f} prods={D.prods} onOpen={setSel} />
       {sel && <NoteDrawer note={sel} mes={D} onClose={() => setSel(null)} />}
+      {prod !== null && (
+        <ProductDrawer prod={prod} nome={(D.prods[prod] || [])[1]} cod={(D.prods[prod] || [])[0]} notes={f} metricaInicial={sort} onClose={() => setProd(null)}
+          periodo={[day ? `${dl!.wd} ${dl!.dm}` : mesLabel(mes), canal === 'salao' ? 'salão' : canal === 'entrega' ? 'entrega' : ''].filter(Boolean).join(' · ')} />
+      )}
     </div>
   )
 }
