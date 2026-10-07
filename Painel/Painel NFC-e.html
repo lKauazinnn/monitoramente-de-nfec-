@@ -73,10 +73,18 @@ aside .b{flex:1;overflow-y:auto;padding:8px 24px 24px}
 .heat{display:grid;gap:2px;font-size:11px}
 .heat .c{padding:7px 6px;border-radius:4px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .scroll{overflow-x:auto}
+.btn.hb{padding:8px 12px;border-radius:10px;background:var(--card);font-weight:500}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:20;max-width:min(640px,calc(100vw - 32px));display:flex;gap:12px;align-items:center;background:var(--ink);color:var(--card);padding:12px 12px 12px 16px;border-radius:12px;font-size:13px;line-height:1.5;box-shadow:0 8px 30px rgba(29,27,23,.25)}
+#toast[hidden]{display:none}
+#toast.erro{background:#8A2E12}
+#toast .btn{padding:4px 10px;flex:none}
+body.drop{outline:3px dashed var(--acc);outline-offset:-10px}
 </style>
 </head>
 <body>
 <div class="wrap" id="app"><div class="msg">Carregando…</div></div>
+<input type="file" id="arq" multiple accept=".csv,.txt,.xml" hidden>
+<div id="toast" role="status" hidden></div>
 
 <script>
 // ---------- utilidades ----------
@@ -100,35 +108,386 @@ const isGorjeta = nome => /gorjeta|taxa de servi|servi[cç]o 10/i.test(nome || '
 // ---------- estado ----------
 const S = { lojas:[], loja:'todas', mes:'', canal:'all', day:'all', sort:'rev', q:'', page:0, sel:null, data:null, loading:false, erro:'' };
 const cache = {};
-let pend = null;
+let STATIC = [];   // lojas/meses publicados em dados/ (gerados pelo Processar.ps1)
+let IMPORT = [];   // resumos dos meses importados neste navegador
 
-window.NFCE_LOJAS = d => { S.lojas = d.lojas || []; S.gerado = d.gerado; };
-window.NFCE_LOAD = d => {
+window.NFCE_LOJAS = d => { STATIC = d.lojas || []; S.gerado = d.gerado; };
+const esperando = {};
+window.NFCE_LOAD = d => { const k = d.cnpj+'|'+d.mes, r = esperando[k]; delete esperando[k]; if (r) r(d); };
+
+function prep(d) {
   const prods = d.prods;
   const notes = d.notes.map(([n,dh,total,desc,icms,pays,info,items,chave]) => {
     const m = (info||'').match(/venda:\s*(\d+)\s*-\s*(ficha|entrega|mesa|comanda)\s*(\d+)/i) || [];
     const tipo = (m[2]||'').toLowerCase();
     const it = items.map(([p,q,v,dd]) => ({p,q,v,d:dd,g:isGorjeta((prods[p]||[])[1])}));
-    return { n, dh, date:dh.slice(0,10), hour:+dh.slice(11,13), total, desc, icms, chave,
+    return { n, dh, date:dh.slice(0,10), hour:+dh.slice(11,13), total, desc, icms, chave, info,
       pays: pays.map(([c,v]) => ({c,v})), venda: m[1] || '—',
       canal: tipo === 'entrega' ? 'entrega' : 'salao',
       ref: m[2] ? tipo.charAt(0).toUpperCase()+tipo.slice(1)+' '+m[3] : '—',
       items: it, gorj: it.filter(i=>i.g).reduce((s,i)=>s+i.v,0) };
   });
-  cache[d.cnpj+'|'+d.mes] = { ...d, notes };
-  if (pend) { pend(); pend = null; }
-};
+  return { ...d, notes };
+}
 
-function loadMes(cnpj, mes) {
-  const k = cnpj+'|'+mes;
-  if (cache[k]) return Promise.resolve(cache[k]);
+const temEstatico = (cnpj, mes) => STATIC.some(l => l.cnpj===cnpj && l.meses.some(m => m.mes===mes));
+function loadStatic(cnpj, mes) {
   return new Promise((res, rej) => {
-    pend = () => res(cache[k]);
+    const k = cnpj+'|'+mes, arq = 'dados/'+cnpj+'/'+mes+'.js';
+    if (!temEstatico(cnpj, mes)) return rej(new Error('Sem dados de '+mesLabel(mes)+' para esta loja'));
+    esperando[k] = res;
     const s = document.createElement('script');
-    s.src = 'dados/'+cnpj+'/'+mes+'.js?'+(S.gerado||'');
-    s.onerror = () => { pend = null; rej(new Error('Arquivo dados/'+cnpj+'/'+mes+'.js não encontrado')); };
+    s.src = arq+'?'+(S.gerado||'');
+    s.onerror = () => { delete esperando[k]; rej(new Error('Arquivo '+arq+' não encontrado')); };
     document.body.appendChild(s);
   });
+}
+
+async function loadMes(cnpj, mes) {
+  const k = cnpj+'|'+mes;
+  if (!cache[k]) cache[k] = prep(await DB.get('mes', k) || await loadStatic(cnpj, mes));
+  return cache[k];
+}
+
+function montarLojas() {
+  const map = new Map();
+  const add = (cnpj, loja, end, m) => {
+    let L = map.get(cnpj); if (!L) map.set(cnpj, L = { cnpj, loja, end, meses:[] });
+    const i = L.meses.findIndex(x => x.mes===m.mes); if (i >= 0) L.meses[i] = m; else L.meses.push(m);
+  };
+  STATIC.forEach(l => l.meses.forEach(m => add(l.cnpj, l.loja, l.end, m)));
+  IMPORT.forEach(r => add(r.cnpj, r.loja, r.end, { mes:r.mes, notas:r.notas, total:r.total }));
+  S.lojas = [...map.values()].sort((a,b) => a.loja.localeCompare(b.loja));
+  S.lojas.forEach(l => l.meses.sort((a,b) => a.mes.localeCompare(b.mes)));
+}
+
+// ---------- base local do navegador (IndexedDB; cai para memória se indisponível) ----------
+const DB = (() => {
+  const mem = { xml:new Map(), mes:new Map() };
+  let p;
+  const open = () => p ||= new Promise(res => {
+    try {
+      const r = indexedDB.open('nfce-cajupar', 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore('xml'); r.result.createObjectStore('mes'); };
+      r.onsuccess = () => res(r.result); r.onerror = r.onblocked = () => res(null);
+    } catch { res(null); }
+  });
+  const run = async (st, mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction(st, mode), r = fn(t.objectStore(st));
+      t.oncomplete = () => res(r ? r.result : undefined); t.onerror = t.onabort = () => rej(t.error);
+    });
+  };
+  return {
+    async get(st, k) { return (await open()) ? run(st, 'readonly', s => s.get(k)) : mem[st].get(k); },
+    async all(st) { return (await open()) ? run(st, 'readonly', s => s.getAll()) : [...mem[st].values()]; },
+    async put(st, entries) {
+      if (!(await open())) return entries.forEach(([k,v]) => mem[st].set(k, v));
+      await run(st, 'readwrite', s => { entries.forEach(([k,v]) => s.put(v, k)); });
+    },
+    async clear() { mem.xml.clear(); mem.mes.clear(); if (await open()) for (const st of ['xml','mes']) await run(st, 'readwrite', s => { s.clear(); }); },
+  };
+})();
+const gz = (blob, modo) => new Response(blob.stream().pipeThrough(modo==='c' ? new CompressionStream('gzip') : new DecompressionStream('gzip')));
+const xmlDa = async chave => { const b = await DB.get('xml', chave); return b ? gz(b).text() : null; };
+const resumoDe = r => ({ cnpj:r.cnpj, mes:r.mes, loja:r.loja, end:r.end, notas:r.notes.length, total:Math.round(r.notes.reduce((s,n)=>s+n[2],0)*100)/100 });
+
+// ---------- importação do CSV do SSMS (mesma lógica do Processar.ps1, roda só no navegador) ----------
+const g = (rx, s, d='') => { const m = rx.exec(s); return m ? m[1] : d; };
+const dec = s => s.replace(/&(?:amp|lt|gt|quot|apos|#(\d+)|#x([\da-f]+));/gi, (m,d,h) => d ? String.fromCharCode(d) : h ? String.fromCharCode(parseInt(h,16)) : {'&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"','&apos;':"'"}[m.toLowerCase()]);
+const xmlEsc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+const utf8 = new TextDecoder();
+
+// Junta a NFe assinada (intacta) com o protocolo da SEFAZ
+function montarProc(ch, texto, prot, cnpj, ctx) {
+  let [nProt, dh, dig, cst, xmot, ver] = prot;
+  if (!nProt || !dh) throw new Error('sem protocolo no banco');
+  if (cst !== '100' && cst !== '150') throw new Error(`cStat ${cst} ${xmot}`);
+  const m = /(<NFe[ >][\s\S]*<\/NFe>)/.exec(texto); if (!m) throw new Error('NFe não encontrada no XML');
+  if (g(/<DigestValue>([^<]+)<\/DigestValue>/, texto) !== dig) throw new Error('digest do banco não bate com a assinatura do XML');
+  ver = ver || ctx.ver[cnpj];
+  if (!ver) return null;   // tenta de novo no fim
+  return '<?xml version="1.0" encoding="UTF-8"?><nfeProc versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">' + m[1] +
+    '<protNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe"><infProt>' +
+    `<tpAmb>${g(/<tpAmb>(\d)<\/tpAmb>/, texto)}</tpAmb><verAplic>${ver}</verAplic><chNFe>${ch}</chNFe><dhRecbto>${dh}-03:00</dhRecbto>` +
+    `<nProt>${nProt}</nProt><digVal>${dig}</digVal><cStat>${cst}</cStat><xMotivo>${xmlEsc(xmot)}</xMotivo>` +
+    '</infProt></protNFe></nfeProc>';
+}
+
+// p: chave, cnpj, mes, fant, algo, [nProt, dhRecbto, digest, cStat, xMotivo, verAplic,] base64
+async function processarCampos(p, ctx, fimDeFila) {
+  const [ch, cnpj, mes, , algo] = p;
+  if (ctx.vistos.has(ch)) return;
+  let bytes = Uint8Array.from(atob(p[p.length-1]), c => c.charCodeAt(0));
+  if (algo === 'gzip') bytes = new Uint8Array(await gz(new Blob([bytes])).arrayBuffer());
+  const texto = utf8.decode(bytes);
+  if (!texto.includes('NFe'+ch)) throw new Error('chave do XML não confere');
+  const fim = texto.trimEnd();
+  if (fim.endsWith('</nfeProc>') && texto.includes('<protNFe')) {
+    const v = g(/<verAplic>([^<]+)<\/verAplic>/, texto); if (v && !ctx.ver[cnpj]) ctx.ver[cnpj] = v;
+    return adicionarXml(ctx, texto, cnpj, mes);
+  }
+  if (!(fim.endsWith('</NFe>') || fim.endsWith('</enviNFe>'))) throw new Error('XML incompleto (cortado na exportação)');
+  if (p.length < 12) throw new Error('XML sem protocolo e a linha não traz os dados do protocolo (use a consulta nova)');
+  const proc = montarProc(ch, texto, p.slice(5, 11), cnpj, ctx);
+  if (proc === null) {
+    if (fimDeFila) throw new Error('versão da SEFAZ (verAplic) desconhecida para esta loja');
+    return ctx.pend.push(p);
+  }
+  return adicionarXml(ctx, proc, cnpj, mes);
+}
+
+// Extrai do XML os mesmos campos que o Processar.ps1 grava em dados/<cnpj>/<mes>.js
+function notaDoXml(x, M) {
+  if (!M.loja) {
+    const e = g(/<emit>([\s\S]*?)<\/emit>/, x);
+    M.loja = dec(g(/<xFant>([^<]*)/, e) || g(/<xNome>([^<]*)/, e));
+    M.end = dec(`${g(/<xLgr>([^<]*)/, e)}, ${g(/<nro>([^<]*)/, e)} - ${g(/<xBairro>([^<]*)/, e)}, ${g(/<xMun>([^<]*)/, e)}/${g(/<UF>([^<]*)/, e)}`);
+  }
+  const t = g(/<ICMSTot>([\s\S]*?)<\/ICMSTot>/, x);
+  const pays = [...x.matchAll(/<detPag>([\s\S]*?)<\/detPag>/g)].map(([,pg]) => [g(/<tPag>(\d+)/, pg), +g(/<vPag>([\d.]+)/, pg, '0')]);
+  const items = [...x.matchAll(/<det nItem="\d+">([\s\S]*?)<\/det>/g)].map(([,di]) => {
+    const c = dec(g(/<cProd>([^<]*)/, di)), nome = dec(g(/<xProd>([^<]*)/, di)), k = c+'|'+nome;
+    if (!M.pidx.has(k)) { M.pidx.set(k, M.prods.length); M.prods.push([c, nome]); }
+    return [M.pidx.get(k), +g(/<qCom>([\d.]+)/, di, '0'), +g(/<vProd>([\d.]+)/, di, '0'), +g(/<vDesc>([\d.]+)/, di, '0')];
+  });
+  return [+g(/<nNF>(\d+)/, x, '0'), g(/<dhEmi>(\d{4}-\d\d-\d\dT\d\d:\d\d)/, x), +g(/<vNF>([\d.]+)/, t, '0'), +g(/<vDesc>([\d.]+)/, t, '0'),
+    +g(/<vICMS>([\d.]+)/, t, '0'), pays, dec(g(/<infCpl>([^<]*)/, x)), items, g(/Id="NFe(\d{44})"/, x)];
+}
+
+async function adicionarXml(ctx, xml, cnpj, mes) {
+  const ch = g(/Id="NFe(\d{44})"/, xml);
+  if (!ch) throw new Error('arquivo não é uma NF-e/NFC-e');
+  if (ctx.vistos.has(ch)) return;
+  ctx.vistos.add(ch);
+  cnpj ||= g(/<emit>\s*<CNPJ>(\d{14})<\/CNPJ>/, xml); mes ||= g(/<dhEmi>(\d{4}-\d\d)/, xml);
+  const k = cnpj+'|'+mes;
+  let M = ctx.meses.get(k);
+  if (!M) ctx.meses.set(k, M = { cnpj, mes, loja:'', end:'', prods:[], pidx:new Map(), notes:[] });
+  M.notes.push(notaDoXml(xml, M));
+  ctx.xmls.push([ch, await gz(new Blob([xml]), 'c').blob()]);
+  if (ctx.xmls.length >= 500) await DB.put('xml', ctx.xmls.splice(0));
+  ctx.ok++;
+}
+
+async function linhasDoArquivo(file, cb) {
+  const h = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+  const enc = h[0]===0xFF && h[1]===0xFE ? 'utf-16le' : h[0]===0xFE && h[1]===0xFF ? 'utf-16be' : 'utf-8';
+  const rd = file.stream().pipeThrough(new TextDecoderStream(enc)).getReader();
+  let buf = '';
+  for (;;) {
+    const { done, value } = await rd.read();
+    if (value) { buf += value; let i; while ((i = buf.indexOf('\n')) >= 0) { await cb(buf.slice(0, i)); buf = buf.slice(i+1); } }
+    if (done) break;
+  }
+  if (buf) await cb(buf);
+}
+
+function calcLacunas(notes) {
+  const ser = {};
+  notes.forEach(n => (ser[n[8].slice(22,25)] ||= new Set()).add(n[0]));
+  return Object.values(ser).reduce((t, s) => { const a = [...s]; return t + a.reduce((x,y)=>Math.max(x,y)) - a.reduce((x,y)=>Math.min(x,y)) + 1 - a.length; }, 0);
+}
+// Une dois meses no formato de dados/<cnpj>/<mes>.js (notas repetidas pela chave ficam uma vez só)
+function mergeRaw(a, b) {
+  if (!a) return { ...b, lacunas: calcLacunas(b.notes) };
+  const prods = a.prods.slice(), idx = new Map(prods.map((p,i) => [p[0]+'|'+p[1], i]));
+  const mapa = b.prods.map(p => { const k = p[0]+'|'+p[1]; if (!idx.has(k)) { idx.set(k, prods.length); prods.push(p); } return idx.get(k); });
+  const tem = new Set(a.notes.map(n => n[8]));
+  const notes = a.notes.concat(b.notes.filter(n => !tem.has(n[8])).map(n => { const c = n.slice(); c[7] = n[7].map(([p, ...r]) => [mapa[p], ...r]); return c; }));
+  return { cnpj:a.cnpj, mes:a.mes, loja:a.loja || b.loja, end:a.end || b.end, prods, notes, lacunas: calcLacunas(notes) };
+}
+
+async function importar(lista) {
+  const files = [...lista].filter(f => /\.(csv|txt|xml)$/i.test(f.name));
+  if (!files.length) return aviso('Selecione os arquivos .csv salvos do SSMS (ou XMLs de NFC-e).', true);
+  const ctx = { linhas:0, ok:0, erros:[], ver:{}, pend:[], meses:new Map(), vistos:new Set(), xmls:[] };
+  const tentar = async (ch, fn) => { try { await fn(); } catch (e) { ctx.erros.push(ch + ' - ' + e.message); } };
+  const t0 = Date.now();
+  try {
+    for (const f of files) {
+      aviso(`Lendo ${esc(f.name)}…`, false, true);
+      if (/\.xml$/i.test(f.name)) {
+        await tentar(f.name, async () => { const x = await f.text(); if (!x.includes('<protNFe')) throw new Error('XML sem protocolo de autorização'); await adicionarXml(ctx, x); });
+        continue;
+      }
+      await linhasDoArquivo(f, l => {
+        l = l.trim().replace(/^\uFEFF/, '').replace(/^"+|"+$/g, '');
+        if (!/^\d{44}\|/.test(l)) return;
+        if (++ctx.linhas % 500 === 0) aviso(`Lendo ${esc(f.name)}… ${nf.format(ctx.linhas)} notas`, false, true);
+        let p = l.split('|');
+        if (p.length > 12) p = p.slice(0, 11).concat(p.slice(11).join('|'));
+        if (p.length !== 6 && p.length !== 12) return void ctx.erros.push(p[0] + ' - linha com formato inesperado');
+        return tentar(p[0], () => processarCampos(p, ctx, false));
+      });
+    }
+    for (const p of ctx.pend) await tentar(p[0], () => processarCampos(p, ctx, true));
+    if (ctx.xmls.length) await DB.put('xml', ctx.xmls.splice(0));
+    aviso('Montando dados do painel…', false, true);
+    const novos = [];
+    for (const [k, M] of ctx.meses) {
+      let base = await DB.get('mes', k);
+      if (!base && temEstatico(M.cnpj, M.mes)) base = await loadStatic(M.cnpj, M.mes).catch(() => null);
+      novos.push([k, mergeRaw(base, { cnpj:M.cnpj, mes:M.mes, loja:M.loja, end:M.end, prods:M.prods, notes:M.notes })]);
+      delete cache[k];
+    }
+    await DB.put('mes', novos);
+    IMPORT = (await DB.all('mes')).map(resumoDe);
+    montarLojas();
+  } catch (e) {
+    return aviso('Erro na importação: ' + esc(e.message), true);
+  }
+  ctx.log = ctx.erros.join('\r\n');
+  aviso(`Importação concluída em ${Math.round((Date.now()-t0)/1000)}s: ${nf.format(ctx.ok)} notas em ${ctx.meses.size} loja/mês` +
+    (ctx.erros.length ? ` · <b>${nf.format(ctx.erros.length)} com erro</b> <button class="btn" id="baixarLog">Baixar log</button>` : ''),
+    ctx.erros.length > 0, ctx.erros.length > 0);
+  const bl = document.getElementById('baixarLog');
+  if (bl) bl.onclick = () => baixar(`importacao-${new Date().toISOString().slice(0,19).replace(/\D/g,'')}.log`, ctx.log, 'text/plain');
+  const lojas = [...new Set([...ctx.meses.values()].map(M => M.cnpj))];
+  if (lojas.length === 1) abrirLoja(lojas[0], [...ctx.meses.values()].map(M => M.mes).sort().pop());
+  else if (S.loja !== 'todas') abrirLoja(S.loja, S.mes);
+  else render();
+}
+
+async function limparImportados() {
+  if (!confirm('Apagar deste navegador todas as notas e XMLs importados? Os dados publicados no painel não são afetados.')) return;
+  await DB.clear();
+  IMPORT = []; for (const k in cache) delete cache[k];
+  montarLojas(); set({ loja:'todas', data:null, mes:'', sel:null });
+  aviso('Dados importados apagados.');
+}
+
+// ---------- avisos e downloads ----------
+let toastT;
+function aviso(msg, erro, fixo) {
+  const t = document.getElementById('toast');
+  t.innerHTML = `<span>${msg}</span><button class="btn" onclick="this.parentNode.hidden=true">×</button>`;
+  t.className = erro ? 'erro' : ''; t.hidden = false;
+  clearTimeout(toastT); if (!fixo) toastT = setTimeout(() => t.hidden = true, erro ? 10000 : 5000);
+}
+function baixar(nome, dados, tipo) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(dados instanceof Blob ? dados : new Blob([dados], { type:tipo }));
+  a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function baixarXml(n) {
+  const x = await xmlDa(n.chave);
+  if (!x) return aviso('O XML desta nota não está neste navegador. Clique em <b>Importar CSV</b> e selecione o CSV do SSMS que contém a nota.', true);
+  baixar(`${n.chave}-procNFe.xml`, x, 'application/xml');
+}
+async function baixarPdf(n) {
+  try {
+    aviso('Gerando PDF…', false, true);
+    const x = await xmlDa(n.chave);
+    await gerarPdf(x ? modeloDoXml(x) : modeloDoPainel(n, S.data));
+    aviso(x ? 'PDF gerado.' : 'PDF gerado como <b>espelho</b>: o XML desta nota não está neste navegador, então saiu sem QR Code e protocolo. Importe o CSV do mês para ter o DANFE completo.', !x);
+  } catch (e) { aviso('Erro ao gerar PDF: ' + esc(e.message), true); }
+}
+
+// ---------- DANFE NFC-e em PDF ----------
+let libsPdf;
+const carregarJs = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('sem internet para carregar o gerador de PDF')); document.head.appendChild(s); });
+const prepararPdf = () => libsPdf ||= Promise.all([
+  carregarJs('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+  carregarJs('https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'),
+]).catch(e => { libsPdf = null; throw e; });
+
+function modeloDoXml(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const q = (el, tag) => el ? el.getElementsByTagNameNS('*', tag)[0] : undefined;
+  const t = (el, tag) => (q(el, tag)?.textContent || '').trim();
+  const all = (el, tag) => el ? [...el.getElementsByTagNameNS('*', tag)] : [];
+  const emit = q(doc,'emit'), e = q(emit,'enderEmit'), ide = q(doc,'ide'), tot = q(doc,'ICMSTot'), dest = q(doc,'dest'), prot = q(doc,'infProt'), pag = q(doc,'pag');
+  return {
+    razao: t(emit,'xNome'), fant: t(emit,'xFant'), cnpj: t(emit,'CNPJ'), ie: t(emit,'IE'),
+    end: [`${t(e,'xLgr')}, ${t(e,'nro')}${t(e,'xCpl') ? ' '+t(e,'xCpl') : ''}`, t(e,'xBairro'), `${t(e,'xMun')}/${t(e,'UF')}`, t(e,'CEP') && 'CEP '+t(e,'CEP')].filter(Boolean).join(' - '),
+    nNF: t(ide,'nNF'), serie: t(ide,'serie'), dhEmi: t(ide,'dhEmi'), tpAmb: t(ide,'tpAmb'), tpEmis: t(ide,'tpEmis'),
+    itens: all(doc,'det').map(d => { const p = q(d,'prod'); return { c:t(p,'cProd'), x:t(p,'xProd'), q:+t(p,'qCom'), u:t(p,'uCom'), vu:+t(p,'vUnCom'), v:+t(p,'vProd'), d:+t(p,'vDesc') || 0 }; }),
+    vProd: +t(tot,'vProd'), vDesc: +t(tot,'vDesc') || 0, vOutro: (+t(tot,'vOutro') || 0) + (+t(tot,'vFrete') || 0), vNF: +t(tot,'vNF'), vTotTrib: +t(tot,'vTotTrib') || 0,
+    pags: all(pag,'detPag').map(p => ({ t:t(p,'tPag'), v:+t(p,'vPag') })), troco: +t(pag,'vTroco') || 0,
+    dest: dest ? { doc: t(dest,'CPF') || t(dest,'CNPJ'), nome: t(dest,'xNome') } : null,
+    qr: t(doc,'qrCode'), urlChave: t(doc,'urlChave'), chave: (q(doc,'infNFe')?.getAttribute('Id') || '').replace(/^NFe/, ''),
+    nProt: t(prot,'nProt'), dhRecbto: t(prot,'dhRecbto'), infCpl: t(doc,'infCpl'),
+  };
+}
+
+// Sem o XML: monta um espelho com o que o painel tem (sem QR Code e sem protocolo)
+function modeloDoPainel(n, D) {
+  const pago = n.pays.reduce((s,p) => s+p.v, 0);
+  return { espelho:true, razao:D.loja, fant:'', cnpj:D.cnpj, ie:'', end:D.end, nNF:n.n, serie:String(+n.chave.slice(22,25)), dhEmi:n.dh, tpAmb:'1', tpEmis:n.chave[34],
+    itens: n.items.map(i => { const p = D.prods[i.p] || []; return { c:p[0], x:p[1], q:i.q, u:'', vu:i.v/(i.q||1), v:i.v, d:i.d }; }),
+    vProd: n.items.reduce((s,i) => s+i.v, 0), vDesc:n.desc, vOutro:0, vNF:n.total, vTotTrib:0,
+    pags: n.pays.map(p => ({ t:p.c, v:p.v })), troco: Math.max(0, Math.round((pago-n.total)*100)/100),
+    dest:null, qr:'', urlChave:'', chave:n.chave, nProt:'', dhRecbto:'', infCpl:n.info || '' };
+}
+
+async function gerarPdf(m) {
+  await prepararPdf();
+  const { jsPDF } = window.jspdf;
+  const W = 80, M = 4, CW = W - 2*M;
+  const v2 = v => (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  const dh = s => s ? `${s.slice(8,10)}/${s.slice(5,7)}/${s.slice(0,4)} ${s.slice(11,19)}` : '';
+  const desenhar = doc => {
+    let y = M + 3;
+    const fonte = (s, st) => { doc.setFont('helvetica', st || 'normal'); doc.setFontSize(s); };
+    const centro = (txt, s = 7, st) => { fonte(s, st); for (const l of doc.splitTextToSize(String(txt), CW)) { doc.text(l, W/2, y, { align:'center' }); y += s * .42; } };
+    const par = (a, b, s = 7, st) => { fonte(s, st); doc.text(String(a), M, y); doc.text(String(b), W-M, y, { align:'right' }); y += s * .42; };
+    const linha = () => { y += .3; doc.setLineDashPattern([.6,.6], 0); doc.setLineWidth(.15); doc.line(M, y, W-M, y); y += 3; };
+
+    centro(m.fant || m.razao, 8.5, 'bold');
+    if (m.fant && m.fant !== m.razao) centro(m.razao, 6.5);
+    centro(`CNPJ ${fmtCnpj(m.cnpj)}${m.ie ? '   IE ' + m.ie : ''}`, 6.5);
+    centro(m.end, 6.5);
+    linha();
+    centro('DANFE NFC-e - Documento Auxiliar da Nota Fiscal de Consumidor Eletrônica', 6.5, 'bold');
+    if (m.espelho) centro('ESPELHO GERADO PELO PAINEL - SEM VALOR FISCAL', 6.5, 'bold');
+    linha();
+    par('CÓDIGO / DESCRIÇÃO', 'QTD  UN  x  VL UNIT  =  VL TOTAL', 5.5, 'bold'); y += .6;
+    for (const i of m.itens) {
+      fonte(6.5); for (const l of doc.splitTextToSize(`${i.c || ''}  ${i.x || ''}`, CW)) { doc.text(l, M, y); y += 2.7; }
+      par('', `${qf.format(i.q)} ${i.u || ''} x ${v2(i.vu)} = ${v2(i.v)}`, 6.5);
+      if (i.d) par('', `desconto -${v2(i.d)}`, 6);
+      y += .6;
+    }
+    linha();
+    par('Qtde. total de itens', m.itens.length);
+    par('Valor total R$', v2(m.vProd));
+    if (m.vDesc) par('Descontos R$', '-' + v2(m.vDesc));
+    if (m.vOutro) par('Acréscimos R$', v2(m.vOutro));
+    par('Valor a pagar R$', v2(m.vNF), 8, 'bold');
+    y += 1;
+    par('FORMA DE PAGAMENTO', 'VALOR PAGO R$', 6, 'bold');
+    m.pags.forEach(p => par(PAY[p.t] || p.t, v2(p.v)));
+    if (m.troco) par('Troco R$', v2(m.troco));
+    linha();
+    centro('Consulte pela Chave de Acesso em', 6.5, 'bold');
+    centro(m.urlChave || 'portal da SEFAZ do estado emitente', 6.5);
+    centro(m.chave.replace(/(\d{4})(?=\d)/g, '$1 '), 6.5);
+    linha();
+    const dd = m.dest?.doc || '';
+    centro(dd ? `CONSUMIDOR - ${dd.length===11 ? 'CPF ' + dd.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : 'CNPJ ' + fmtCnpj(dd)}${m.dest.nome ? ' - ' + m.dest.nome : ''}` : 'CONSUMIDOR NÃO IDENTIFICADO', 6.5, 'bold');
+    linha();
+    centro(`NFC-e nº ${m.nNF}   Série ${m.serie}   ${dh(m.dhEmi)}`, 7, 'bold');
+    if (m.nProt) { centro('Protocolo de autorização: ' + m.nProt, 6.5); centro('Data de autorização: ' + dh(m.dhRecbto), 6.5); }
+    if (m.tpEmis === '9') centro('EMITIDA EM CONTINGÊNCIA', 7, 'bold');
+    if (m.tpAmb === '2') centro('EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO - SEM VALOR FISCAL', 7, 'bold');
+    if (m.qr) {
+      const qr = qrcode(0, 'M'); qr.addData(m.qr); qr.make();
+      const n = qr.getModuleCount(), lado = 34, c = lado / n, x0 = (W - lado) / 2;
+      y += 1; doc.setFillColor(0, 0, 0);
+      for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (qr.isDark(r, k)) doc.rect(x0 + k*c, y + r*c, c + .02, c + .02, 'F');
+      y += lado + 4;
+    }
+    if (m.vTotTrib) centro(`Tributos totais incidentes (Lei Federal 12.741/2012): R$ ${v2(m.vTotTrib)}`, 6);
+    if (m.infCpl) { linha(); centro(m.infCpl, 6); }
+    return y;
+  };
+  const altura = desenhar(new jsPDF({ unit:'mm', format:[W, 3000] })) + M;
+  const doc = new jsPDF({ unit:'mm', format:[W, Math.max(altura, 90)] });
+  desenhar(doc);
+  doc.save(`NFCe-${m.chave}.pdf`);
 }
 
 function opDay(nt) {
@@ -166,7 +525,15 @@ app.addEventListener('click', e => {
   else if (a==='close') set({sel:null}, true);
   else if (a==='loja') abrirLoja(v, S.mes);
   else if (a==='mesov') set({mes:v});
+  else if (a==='xml') baixarXml(S.sel);
+  else if (a==='pdf') baixarPdf(S.sel);
+  else if (a==='importar') document.getElementById('arq').click();
+  else if (a==='limpar') limparImportados();
 });
+document.getElementById('arq').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) importar(f); });
+document.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); document.body.classList.add('drop'); } });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('drop'); });
+document.addEventListener('drop', e => { if (!e.dataTransfer.files.length) return; e.preventDefault(); document.body.classList.remove('drop'); importar(e.dataTransfer.files); });
 app.addEventListener('change', e => {
   if (e.target.id==='selLoja') { e.target.value==='todas' ? set({loja:'todas', data:null, mes:''}) : abrirLoja(e.target.value, S.mes); }
   if (e.target.id==='selMes') { S.loja==='todas' ? set({mes:e.target.value}) : abrirLoja(S.loja, e.target.value); }
@@ -178,7 +545,11 @@ document.addEventListener('keydown', e => { if (e.key==='Escape' && S.sel) set({
 
 // ---------- telas ----------
 function cabecalho(eyebrow, titulo, destaque, ctrls) {
-  return `<header><div><div class="eyebrow mono">${eyebrow}</div><h1>${esc(titulo)} ${destaque?`<span>${esc(destaque)}</span>`:''}</h1></div><div class="ctrls">${ctrls}</div></header>`;
+  return `<header><div><div class="eyebrow mono">${eyebrow}</div><h1>${esc(titulo)} ${destaque?`<span>${esc(destaque)}</span>`:''}</h1></div><div class="ctrls">${ctrls}${ferramentas()}</div></header>`;
+}
+function ferramentas() {
+  return `<button class="btn hb" data-a="importar" title="Arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql (ou XMLs de NFC-e). Também dá para arrastar os arquivos para a página.">Importar CSV</button>` +
+    (IMPORT.length ? `<button class="btn hb" data-a="limpar" title="${nf.format(IMPORT.reduce((s,r)=>s+r.notas,0))} notas importadas neste navegador">Limpar importados</button>` : '');
 }
 function selLoja() {
   return `<select id="selLoja"><option value="todas"${S.loja==='todas'?' selected':''}>Todas as lojas (${S.lojas.length})</option>${
@@ -310,7 +681,7 @@ function gaveta(n, D) {
     <span class="mono" style="font-size:11px;color:var(--mut);letter-spacing:.06em;text-transform:uppercase">NFC-e nº ${n.n}</span>
     <span style="font-size:24px;font-weight:600;letter-spacing:-.02em">${brl.format(n.total)}</span>
     <span style="font-size:13px;color:var(--mut)">${fmtDt} · ${n.canal==='entrega'?'Entrega':'Salão'} · ${esc(n.ref)} · venda ${esc(n.venda)}</span></div>
-    <button class="btn" data-a="close">Fechar</button></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><button class="btn" data-a="close">Fechar</button><button class="btn" data-a="xml">Baixar XML</button><button class="btn" data-a="pdf">Baixar PDF</button></div></div>
     <div class="b">${n.items.map(i=>{const p=D.prods[i.p]||[];return `<div class="it"><span style="font-weight:500">${esc(p[1])}</span><span class="num r">${brl.format(i.v)}</span><span class="mono" style="font-size:11px;color:var(--mut)">${qf.format(i.q)} × ${brl.format(i.v/(i.q||1))} · cód ${esc(p[0])}</span><span class="mono r" style="font-size:11px;color:var(--acc2)">${i.d?'− '+brl.format(i.d):''}</span></div>`}).join('')}
     <div style="display:flex;flex-direction:column;gap:8px;padding-top:16px;font-size:13px">${summary.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--mut)">${k}</span><span class="num">${brl.format(v)}</span></div>`).join('')}</div>
     <div class="mono" style="margin-top:16px;font-size:10px;color:var(--mut2);word-break:break-all">Chave ${n.chave}</div></div></aside>`;
@@ -319,16 +690,20 @@ function gaveta(n, D) {
 function render() {
   const sy = window.scrollY;
   if (!S.lojas.length) {
-    app.innerHTML = cabecalho('NFC-e · CAJUPAR','Painel NFC-e','','') + '<div class="msg">Nenhum dado encontrado.<br>Arraste os CSVs exportados do SSMS para <b>Processar.bat</b> e abra este painel de novo.</div>';
+    app.innerHTML = cabecalho('NFC-e · CAJUPAR','Painel NFC-e','','') + '<div class="msg">Nenhum dado encontrado.<br>Clique em <b>Importar CSV</b> (ou arraste para esta página) os arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql.</div>';
     return;
   }
   app.innerHTML = S.loja==='todas' ? telaTodas() : telaLoja();
   window.scrollTo(0, sy);
 }
 </script>
-<script src="dados/lojas.js" onerror="render()"></script>
+<script src="dados/lojas.js"></script>
 <script>
-if (S.lojas.length === 1) abrirLoja(S.lojas[0].cnpj); else render();
+(async () => {
+  try { IMPORT = (await DB.all('mes')).map(resumoDe); } catch { IMPORT = []; }
+  montarLojas();
+  if (S.lojas.length === 1) abrirLoja(S.lojas[0].cnpj); else render();
+})();
 </script>
 </body>
 </html>
