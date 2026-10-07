@@ -74,6 +74,14 @@ export function TelaLogin({ erroLink }: { erroLink?: string }) {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState(erroLink ? traduzir(erroLink) : '')
   const [enviando, setEnviando] = useState(false)
+  const [naoConfirmado, setNaoConfirmado] = useState(false)
+  const [reenvio, setReenvio] = useState('')
+
+  async function reenviar() {
+    setReenvio('enviando')
+    const { error } = await sb!.auth.resend({ type: 'signup', email: email.trim(), options: { emailRedirectTo: urlRetorno() } })
+    setReenvio(error ? traduzir(error.message) : 'ok')
+  }
 
   async function enviar(e: FormEvent) {
     e.preventDefault()
@@ -82,6 +90,7 @@ export function TelaLogin({ erroLink }: { erroLink?: string }) {
     if (modo === 'entrar') {
       const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password: senha })
       if (error) setErro(traduzir(error.message))
+      setNaoConfirmado(!!error && /email not confirmed/i.test(error.message)); setReenvio('')
     } else {
       const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: urlRetorno() })
       if (error) setErro(traduzir(error.message)); else setModo('enviado')
@@ -115,6 +124,16 @@ export function TelaLogin({ erroLink }: { erroLink?: string }) {
           </label>
         )}
         {erro && <Erro>{erro}</Erro>}
+        {naoConfirmado && modo === 'entrar' && (
+          reenvio === 'ok'
+            ? <p className="flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-2.5 text-sm text-ok"><MailCheck className="mt-0.5 size-4 shrink-0" />E-mail de confirmação reenviado para {email}. Veja também o spam.</p>
+            : <>
+                <Button type="button" onClick={reenviar} disabled={reenvio === 'enviando'}>
+                  {reenvio === 'enviando' ? <LoaderCircle className="size-4 animate-spin" /> : <MailCheck className="size-4" />}Reenviar e-mail de confirmação
+                </Button>
+                {reenvio && reenvio !== 'enviando' && <Erro>{reenvio}</Erro>}
+              </>
+        )}
         <Button variant="primary" type="submit" disabled={enviando} className="h-11">
           {enviando && <LoaderCircle className="size-4 animate-spin" />}{modo === 'entrar' ? 'Entrar' : 'Enviar link'}
         </Button>
