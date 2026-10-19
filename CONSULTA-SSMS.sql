@@ -2,16 +2,20 @@
    EXPORTAÇÃO NFC-e  -  rodar no SSMS de cada servidor (somente leitura)
    ===================================================================== */
 
+/* PERÍODO: 2024 a 2026. Para outro período, troque as datas '20240101' / '20270101'
+   nos passos 0 e 1 e na linha DECLARE do passo 2.                              */
+
 /* PASSO 0 - Diagnóstico: quantas notas têm o XML guardado no banco, por mês.
    Onde "sem_xml" > 0, o CSV do passo 2 vai trazer a nota sem XML (o painel acusa
-   "XML vazio no banco"). Para esses meses, exporte os XMLs pelo emissor (ZIP com
+   "XML vazio no banco" e não tem como saber o valor). Para esses meses, exporte os
+   XMLs pelo emissor (Colibri > Exportação XML, período, status Todos: gera o ZIP com
    as pastas Autorizadas/Canceladas) e importe o .zip no painel.                  */
 SELECT xFantEmit AS loja, CNPJCpfEmit AS cnpj, CONVERT(char(7), dhEmi, 126) AS mes, xml_proc_algo,
        COUNT(*) AS notas,
        SUM(CASE WHEN DATALENGTH(xml_proc_bin) > 0 THEN 1 ELSE 0 END) AS com_xml,
        SUM(CASE WHEN ISNULL(DATALENGTH(xml_proc_bin), 0) = 0 THEN 1 ELSE 0 END) AS sem_xml
 FROM [FiscalGateway].[dbo].[NFe] WITH (NOLOCK)
-WHERE dhEmi >= '20260101' AND status = 'processado'
+WHERE dhEmi >= '20240101' AND dhEmi < '20270101' AND status = 'processado'
 GROUP BY xFantEmit, CNPJCpfEmit, CONVERT(char(7), dhEmi, 126), xml_proc_algo
 ORDER BY cnpj, mes;
 
@@ -20,19 +24,24 @@ ORDER BY cnpj, mes;
    Use para separar os blocos do passo 2 em até ~30.000 notas cada.      */
 SELECT xFantEmit AS loja, CNPJCpfEmit AS cnpj, YEAR(dhEmi) AS ano, MONTH(dhEmi) AS mes, COUNT(*) AS notas
 FROM [FiscalGateway].[dbo].[NFe] WITH (NOLOCK)
-WHERE dhEmi >= '20260101' AND status = 'processado'
+WHERE dhEmi >= '20240101' AND dhEmi < '20270101' AND status = 'processado'
 GROUP BY xFantEmit, CNPJCpfEmit, YEAR(dhEmi), MONTH(dhEmi)
 ORDER BY cnpj, ano, mes;
 
 
-/* PASSO 2 - Exportação. Troque só as datas da linha DECLARE a cada bloco.
-   @fim = primeiro dia DEPOIS do período (ex.: '20260401' pega até 31/03).
+/* PASSO 2 - Exportação. Rode um bloco por vez trocando só a linha DECLARE
+   (blocos de ~30.000 notas pelo passo 1; numa loja grande, 1 a 2 meses por bloco):
+     '20240101' a '20240301', '20240301' a '20240501', ... até '20261101' a '20270101'
+   @fim = primeiro dia DEPOIS do período (ex.: '20240301' pega até 29/02).
    Depois: botão direito na grade > Salvar Resultados Como... > .csv
    Confira se o nº de linhas no rodapé bate com o passo 1.
+   Notas sem XML no banco saem na linha mesmo assim (o painel lista no log como
+   "XML vazio no banco"). Para exportar só as que têm XML (arquivo bem menor),
+   tire o "--" da linha "AND DATALENGTH..." lá embaixo.
    Atenção: esta tabela NÃO marca as notas canceladas depois (elas continuam
    'processado' / cStat 100). Por isso importe também os cancelamentos (passo 3
    ou o .zip do emissor, que traz a pasta Canceladas).                    */
-DECLARE @ini datetime = '20260101', @fim datetime = '20260401';
+DECLARE @ini datetime = '20240101', @fim datetime = '20240301';
 
 SELECT n.ID + '|' + ISNULL(n.CNPJCpfEmit,'') + '|' + CONVERT(char(7), n.dhEmi, 126) + '|'
      + ISNULL(REPLACE(n.xFantEmit,'|',' '),'') + '|' + ISNULL(n.xml_proc_algo,'') + '|'
@@ -44,6 +53,7 @@ FROM [FiscalGateway].[dbo].[NFe] n WITH (NOLOCK)
 WHERE n.dhEmi >= @ini AND n.dhEmi < @fim
   AND n.status = 'processado'
   AND n.xml_proc_bin IS NOT NULL
+  -- AND DATALENGTH(n.xml_proc_bin) > 0      -- só notas com XML
 ORDER BY n.dhEmi;
 
 
