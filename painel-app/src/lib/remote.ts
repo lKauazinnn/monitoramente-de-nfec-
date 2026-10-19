@@ -1,7 +1,7 @@
 // Banco central no Supabase (tabelas de supabase/schema.sql)
 import { createClient } from '@supabase/supabase-js'
 import { API_ADMIN, SITE, SUPABASE_ANON_KEY, SUPABASE_URL } from '../config'
-import { calcLacunas, type RawMes, type RawNote, type Resumo } from './data'
+import { calcLacunas, type Cancelamento, type RawMes, type RawNote, type Resumo } from './data'
 import { gz } from './db'
 
 // Links dos e-mails (convite, recuperação de senha) chegam com #type=...; lido antes do cliente limpar a URL
@@ -67,19 +67,43 @@ function rawDe(cnpj: string, mes: string, rows: Linha[]): RawMes {
   return { cnpj, mes, loja: rows[0]?.loja || '', end: rows[0]?.endereco || '', prods, notes, lacunas: calcLacunas(notes) }
 }
 
+const r2 = (v: number) => Math.round(v * 100) / 100
 export async function resumoRemoto(): Promise<Resumo[]> {
   const { data, error } = await cliente().from('nfce_resumo').select('*')
   falhou(error)
-  return (data || []).map(r => ({ cnpj: r.cnpj, mes: r.mes, loja: r.loja, end: r.endereco, notas: +r.notas, total: Math.round(+r.total * 100) / 100 }))
+  // canceladas/repetidas só existem depois da migração 005
+  return (data || []).map(r => ({ cnpj: r.cnpj, mes: r.mes, loja: r.loja, end: r.endereco, notas: +r.notas, total: r2(+r.total),
+    canceladas: +(r.canceladas || 0), cancelado: r2(+(r.total_cancelado || 0)),
+    repetidas: +(r.repetidas || 0), repetido: r2(+(r.total_repetido || 0)) }))
 }
 
+// Recalcula no banco as repetidas (mesma venda do PDV em duas notas), uma loja por vez para não estourar o tempo limite
+export async function marcarRepetidas(cnpjs: string[], progresso: (m: string) => void) {
+  let n = 0
+  for (const [i, cnpj] of cnpjs.entries()) {
+    progresso(`Conferindo notas repetidas… loja ${i + 1} de ${cnpjs.length}`)
+    const { data, error } = await cliente().rpc('nfce_marcar_repetidas', { p_cnpjs: [cnpj] })
+    if (error) throw new Error(/nfce_marcar_repetidas|schema cache|function/i.test(error.message)
+      ? 'o banco ainda não confere notas repetidas: rode supabase/005_canceladas.sql no SQL Editor do Supabase' : error.message)
+    n += +(data || 0)
+  }
+  return n
+}
+
+// Notas válidas = sem cancelamento e sem repetição (view da migração 005). Sem a migração, lê a tabela inteira.
+let tabelaNotas: Promise<string> | undefined
+const notasAtivas = () => tabelaNotas ||= (async () => {
+  const { error } = await cliente().from('nfce_notas_ativas').select('chave', { head: true }).limit(1)
+  return error ? 'nfce_notas' : 'nfce_notas_ativas'
+})()
+
 export async function mesRemoto(cnpj: string, mes: string): Promise<RawMes> {
-  const c = cliente()
-  const { count, error } = await c.from('nfce_notas').select('chave', { count: 'exact', head: true }).eq('cnpj', cnpj).eq('mes', mes)
+  const c = cliente(), tabela = await notasAtivas()
+  const { count, error } = await c.from(tabela).select('chave', { count: 'exact', head: true }).eq('cnpj', cnpj).eq('mes', mes)
   falhou(error)
   if (!count) throw new Error('Sem notas deste mês para esta loja')
   const partes = await Promise.all(Array.from({ length: Math.ceil(count / POR_PAGINA) }, async (_, i) => {
-    const r = await c.from('nfce_notas').select(COLUNAS).eq('cnpj', cnpj).eq('mes', mes).order('chave').range(i * POR_PAGINA, (i + 1) * POR_PAGINA - 1)
+    const r = await c.from(tabela).select(COLUNAS).eq('cnpj', cnpj).eq('mes', mes).order('chave').range(i * POR_PAGINA, (i + 1) * POR_PAGINA - 1)
     falhou(r.error)
     return (r.data || []) as Linha[]
   }))
@@ -92,6 +116,18 @@ export async function enviarNotas(rows: Linha[], progresso: (m: string) => void)
   for (let i = 0; i < rows.length; i += 500) {
     progresso(`Enviando notas para o banco… ${Math.min(i + 500, rows.length).toLocaleString('pt-BR')} de ${rows.length.toLocaleString('pt-BR')}`)
     const { error } = await c.from('nfce_notas').upsert(rows.slice(i, i + 500), { onConflict: 'chave', ignoreDuplicates: true })
+    falhou(error)
+  }
+}
+
+// Cancelamentos ficam numa tabela própria (as notas nunca são alteradas); repetidos são ignorados
+export async function enviarCanceladas(rows: Cancelamento[], progresso: (m: string) => void) {
+  const c = cliente()
+  for (let i = 0; i < rows.length; i += 500) {
+    progresso(`Registrando notas canceladas… ${Math.min(i + 500, rows.length).toLocaleString('pt-BR')} de ${rows.length.toLocaleString('pt-BR')}`)
+    const { error } = await c.from('nfce_canceladas').upsert(rows.slice(i, i + 500), { onConflict: 'chave', ignoreDuplicates: true })
+    if (error && /nfce_canceladas|schema cache|does not exist/i.test(error.message))
+      throw new Error('O banco ainda não guarda cancelamentos: rode supabase/005_canceladas.sql no SQL Editor do Supabase e importe de novo.')
     falhou(error)
   }
 }

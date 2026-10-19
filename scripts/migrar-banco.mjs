@@ -1,6 +1,6 @@
 // Copia o NF-e Control de um projeto Supabase para outro, sem reimportar os CSVs.
 //   Uso (na pasta do projeto):  node scripts/migrar-banco.mjs
-// Copia: notas (nfce_notas), XMLs (nfce_xml), apelidos das lojas (nfce_lojas) e os usuários.
+// Copia: notas (nfce_notas), XMLs (nfce_xml), cancelamentos (nfce_canceladas), apelidos das lojas (nfce_lojas) e os usuários.
 // Pode ser interrompido e rodado de novo: o que já foi copiado é pulado. Nada é apagado no banco antigo.
 // As chaves secret são pedidas na tela (não aparecem enquanto você digita) e não são gravadas em lugar nenhum.
 import { createClient } from '@supabase/supabase-js'
@@ -62,10 +62,13 @@ try {
   // 0) chaves válidas e o banco novo precisa das tabelas
   const chaveRuim = e => e && /api key|jwt|unauthori[sz]ed|401|403/i.test(e.message + (e.code || ''))
   if (chaveRuim((await de.from('nfce_notas').select('chave', { head: true, count: 'exact' })).error)) throw new Error('Secret key do banco ANTIGO inválida.')
-  for (const t of ['nfce_notas', 'nfce_xml', 'nfce_lojas']) {
+  // cancelamentos só existem depois da migração 005; se o antigo tem, o novo precisa ter
+  const temCanc = !(await de.from('nfce_canceladas').select('chave', { head: true, count: 'exact' })).error
+  const tabelas = ['nfce_notas', 'nfce_xml', 'nfce_lojas', ...(temCanc ? ['nfce_canceladas'] : [])]
+  for (const t of tabelas) {
     const { error } = await para.from(t).select('*', { head: true, count: 'exact' })
     if (chaveRuim(error)) throw new Error('Secret key do banco NOVO inválida.')
-    if (error) throw new Error(`No banco NOVO falta a tabela ${t}. Rode no SQL Editor dele: supabase/schema.sql, 002_login_e_admin.sql e 003_apelido_lojas.sql.`)
+    if (error) throw new Error(`No banco NOVO falta a tabela ${t}. Rode no SQL Editor dele: supabase/schema.sql, 002_login_e_admin.sql, 003_apelido_lojas.sql, 004_busca_e_comparativo.sql e 005_canceladas.sql.`)
   }
 
   // 1) usuários (mesmos e-mails, papéis e nomes; a senha não pode ser copiada)
@@ -86,15 +89,21 @@ try {
   const quem = r => ({ ...r, importado_por: idNovo.get(r.importado_por) ?? null })
   const n = await copiar(de, para, 'nfce_notas', 'chave,cnpj,mes,loja,endereco,n,dh,total,descontos,icms,pagamentos,info,itens,importado_em,importado_por', 'chave', 1000, quem)
   const x = await copiar(de, para, 'nfce_xml', 'chave,xml_gz,importado_em,importado_por', 'chave', 300, quem)
+  if (temCanc) {
+    await copiar(de, para, 'nfce_canceladas', 'chave,cnpj,tipo,protocolo,cstat,dh_evento,chave_substituta,origem,importado_em,importado_por', 'chave', 1000, quem)
+    // repetidas são calculadas (não copiadas): refaz no banco novo com as notas que acabaram de chegar
+    const { data: rep, error } = await para.rpc('nfce_marcar_repetidas')
+    console.log(error ? `\nRepetidas não recalculadas (${error.message}): rode "select nfce_marcar_repetidas();" no SQL Editor do banco novo.` : `\nRepetidas marcadas no banco novo: ${fmt(rep || 0)}`)
+  }
   const { data: lojas } = await de.from('nfce_lojas').select('*')
   if (lojas?.length) { const { error } = await para.from('nfce_lojas').upsert(lojas.map(l => ({ ...l, atualizado_por: idNovo.get(l.atualizado_por) ?? null }))); falhou(error, 'gravar nfce_lojas') }
 
   // 3) conferência
   const conta = async (c, t) => (await c.from(t).select('*', { head: true, count: 'exact' })).count || 0
   console.log('\nConferência (antigo -> novo):')
-  for (const t of ['nfce_notas', 'nfce_xml', 'nfce_lojas']) {
+  for (const t of tabelas) {
     const a = await conta(de, t), b = await conta(para, t)
-    console.log(`  ${t.padEnd(11)} ${fmt(a).padStart(9)} -> ${fmt(b).padStart(9)}  ${b >= a ? 'OK' : 'FALTANDO ' + fmt(a - b) + ' (rode o script de novo)'}`)
+    console.log(`  ${t.padEnd(15)} ${fmt(a).padStart(9)} -> ${fmt(b).padStart(9)}  ${b >= a ? 'OK' : 'FALTANDO ' + fmt(a - b) + ' (rode o script de novo)'}`)
   }
   console.log(`\nPronto (${fmt(n)} notas e ${fmt(x)} XMLs lidos).`)
   if (criados.length) console.log('Os usuários criados entram usando "Esqueci minha senha" na tela de login do NF-e Control.')

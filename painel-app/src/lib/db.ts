@@ -1,14 +1,15 @@
-// Base local do navegador (IndexedDB) com as notas e XMLs importados.
+// Base local do navegador (IndexedDB) com as notas, XMLs e cancelamentos importados.
 // Não existe função de apagar: o que foi importado só é acrescentado ou atualizado.
-type Store = 'xml' | 'mes'
+// Nota cancelada continua guardada; ela só deixa de entrar nos totais.
+type Store = 'xml' | 'mes' | 'canc'
 
-const mem = { xml: new Map<string, unknown>(), mes: new Map<string, unknown>() }
+const mem = { xml: new Map<string, unknown>(), mes: new Map<string, unknown>(), canc: new Map<string, unknown>() }
 let aberto: Promise<IDBDatabase | null> | undefined
 
 const open = () => aberto ||= new Promise(res => {
   try {
-    const r = indexedDB.open('nfce-cajupar', 1)
-    r.onupgradeneeded = () => { r.result.createObjectStore('xml'); r.result.createObjectStore('mes') }
+    const r = indexedDB.open('nfce-cajupar', 2)
+    r.onupgradeneeded = () => { for (const s of ['xml', 'mes', 'canc']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s) }
     r.onsuccess = () => res(r.result)
     r.onerror = r.onblocked = () => res(null)
   } catch { res(null) }

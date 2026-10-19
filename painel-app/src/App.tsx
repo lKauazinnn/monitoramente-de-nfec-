@@ -105,6 +105,9 @@ export default function App() {
       setVersao(x => x + 1)
       const log = r.erros.join('\r\n')
       toast(<><b>Importação concluída</b> em {r.segundos}s: {nf.format(r.ok)} notas em {r.meses.length} loja/mês.
+        {r.canceladas > 0 && <> {nf.format(r.canceladas)} canceladas registradas (fora do faturamento).</>}
+        {r.repetidas > 0 && <> {nf.format(r.repetidas)} repetidas (mesma venda em duas notas) contadas uma vez só.</>}
+        {r.ignorados > 0 && <span className="text-muted"> {nf.format(r.ignorados)} inutilizações/eventos sem valor ignorados.</span>}
         {r.erros.length > 0 && <span className="text-danger"> {nf.format(r.erros.length)} com erro.</span>}</>,
         { tone: r.erros.length ? 'erro' : 'ok', fixo: r.erros.length > 0, acao: r.erros.length ? { label: 'Baixar log de erros', onClick: () => baixar(`importacao-${new Date().toISOString().slice(0, 19).replace(/\D/g, '')}.log`, log, 'text/plain') } : undefined })
       const cnpjs = [...new Set(r.meses.map(m => m.cnpj))]
@@ -165,13 +168,13 @@ export default function App() {
                 <Button variant="ghost" size="sm" aria-label="Sair" title="Sair" onClick={() => sb!.auth.signOut()}><LogOut className="size-3.5" /></Button>
               </div>
             )}
-            {tela === 'painel' && <Button variant="primary" onClick={escolherArquivos} disabled={importando} title="Arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql (ou XMLs de NFC-e). Também dá para arrastar para a página.">
+            {tela === 'painel' && <Button variant="primary" onClick={escolherArquivos} disabled={importando} title="Arquivos .csv salvos do SSMS com a consulta CONSULTA-SSMS.sql, XMLs de NFC-e ou o .zip de XMLs exportado pelo emissor (as canceladas ficam fora do faturamento). Também dá para arrastar para a página.">
               <Upload className="size-4" /><span className="max-sm:hidden">Importar CSV</span><span className="sm:hidden">Importar</span>
             </Button>}
             <Button variant="ghost" aria-label={dark ? 'Tema claro' : 'Tema escuro'} size="icon" onClick={() => setDark(!dark)}>
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
-            <input ref={arq} type="file" multiple accept=".csv,.txt,.xml" hidden onChange={e => { const f = [...(e.target.files || [])]; e.target.value = ''; onImport(f) }} />
+            <input ref={arq} type="file" multiple accept=".csv,.txt,.xml,.zip" hidden onChange={e => { const f = [...(e.target.files || [])]; e.target.value = ''; onImport(f) }} />
           </div>
           {remoto && email && (
             <nav className="scroll-thin mx-auto flex max-w-[1440px] gap-1 overflow-x-auto px-4 sm:px-6" aria-label="Seções">
@@ -260,8 +263,8 @@ export default function App() {
           <div className="anim-fade pointer-events-none fixed inset-0 z-50 grid place-items-center bg-bg/80 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed border-accent bg-surface px-16 py-12 text-center shadow-2xl">
               <Upload className="size-8 text-accent" />
-              <p className="text-lg font-semibold">Solte os CSVs do SSMS para importar</p>
-              <p className="text-sm text-muted">As notas são somadas às que já existem. Nada é apagado.</p>
+              <p className="text-lg font-semibold">Solte os CSVs do SSMS ou os ZIPs de XML para importar</p>
+              <p className="text-sm text-muted">As notas são somadas às que já existem. Nada é apagado; canceladas ficam fora do faturamento.</p>
             </div>
           </div>
         )}

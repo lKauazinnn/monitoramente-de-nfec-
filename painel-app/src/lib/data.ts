@@ -6,7 +6,12 @@ import { nomeAuto } from './format'
 // nota: [nNF, dhEmi, vNF, vDesc, vICMS, [[tPag, vPag]], infCpl, [[iProd, qCom, vProd, vDesc]], chave]
 export type RawNote = [number, string, number, number, number, [string, number][], string, [number, number, number, number][], string]
 export interface RawMes { cnpj: string; mes: string; loja: string; end: string; lacunas: number; prods: [string, string][]; notes: RawNote[] }
-export interface LojaMes { mes: string; notas: number; total: number }
+// notas/total já sem canceladas e repetidas; canceladas/cancelado e repetidas/repetido = o que ficou de fora do faturamento
+export interface LojaMes { mes: string; notas: number; total: number; canceladas?: number; cancelado?: number; repetidas?: number; repetido?: number }
+// Evento de cancelamento (110111 cancelamento, 110112 cancelamento por substituição)
+export interface Cancelamento {
+  chave: string; cnpj: string; tipo: string; protocolo: string; cstat: string; dh_evento: string; chave_substituta: string; origem: string
+}
 // loja = nome fiscal (xFant da nota); nome = como aparece no painel (apelido do admin ou Caju + bairro)
 export interface Loja { cnpj: string; loja: string; nome: string; apelido: string; end: string; meses: LojaMes[] }
 export interface Item { p: number; q: number; v: number; d: number; g: boolean }
@@ -78,16 +83,63 @@ export function prep(d: RawMes): Mes {
 
 const cache: Record<string, Mes> = {}
 export const invalidar = (k: string) => { delete cache[k] }
+export const invalidarLoja = (cnpj: string) => Object.keys(cache).forEach(k => { if (k.startsWith(cnpj + '|')) delete cache[k] })
 export async function loadMes(cnpj: string, mes: string): Promise<Mes> {
   const k = cnpj + '|' + mes
-  if (!cache[k]) cache[k] = prep(remoto ? await mesRemoto(cnpj, mes) : (await DB.get<RawMes>('mes', k)) || (await loadStatic(cnpj, mes)))
+  if (!cache[k]) {
+    if (remoto) cache[k] = prep(await mesRemoto(cnpj, mes))   // o banco central já entrega sem canceladas e repetidas
+    else {
+      const r = (await DB.get<RawMes>('mes', k)) || (await loadStatic(cnpj, mes))
+      cache[k] = prep({ ...r, notes: validas(r.notes, await canceladasLocais()).notas })
+    }
+  }
   return cache[k]
 }
 
-export const resumoDe = (r: RawMes): Resumo => ({
-  cnpj: r.cnpj, mes: r.mes, loja: r.loja, end: r.end, notas: r.notes.length,
-  total: Math.round(r.notes.reduce((s, n) => s + n[2], 0) * 100) / 100,
-})
+// Chaves canceladas importadas neste navegador (modo sem banco central)
+export async function canceladasLocais(): Promise<Set<string>> {
+  try { return new Set((await DB.all<Cancelamento>('canc')).map(c => c.chave)) } catch { return new Set() }
+}
+
+// Mesma venda do PDV emitida em duas notas (ex.: online + contingência): mesma venda, ficha/mesa/entrega, valor e itens,
+// até 30 min de diferença. Fica a de contingência (tpEmis 9) ou, se forem do mesmo tipo, a primeira chave.
+// Mesma regra de nfce_marcar_repetidas (supabase/005_canceladas.sql).
+export function repetidas(notes: RawNote[]): Set<string> {
+  const grupos = new Map<string, RawNote[]>()
+  for (const n of notes) {
+    const m = /venda:\s*(\d+)\s*-\s*(ficha|entrega|mesa|comanda)\s*(\d+)/i.exec(n[6] || '')
+    if (!m || !(n[2] > 0)) continue
+    const k = [m[1], m[2].toLowerCase(), m[3], n[2], JSON.stringify(n[7])].join('|')
+    const g = grupos.get(k)
+    if (g) g.push(n); else grupos.set(k, [n])
+  }
+  const fora = new Set<string>()
+  for (const g of grupos.values()) {
+    if (g.length < 2) continue
+    for (const b of g) for (const x of g) {
+      if (x === b || Math.abs(Date.parse(x[1]) - Date.parse(b[1])) > 30 * 60e3) continue
+      const tb = b[8][34], tx = x[8][34]
+      if ((tx === '9' && tb !== '9') || (tx === tb && x[8] < b[8])) { fora.add(b[8]); break }
+    }
+  }
+  return fora
+}
+
+// O que entra no faturamento: sem as canceladas e sem as repetidas
+export function validas(notes: RawNote[], canc: Set<string>) {
+  const semCanc = notes.filter(n => !canc.has(n[8])), rep = repetidas(semCanc)
+  return { notas: semCanc.filter(n => !rep.has(n[8])), canceladas: notes.filter(n => canc.has(n[8])), repetidas: semCanc.filter(n => rep.has(n[8])) }
+}
+
+const r2 = (v: number) => Math.round(v * 100) / 100
+const soma = (ns: RawNote[]) => r2(ns.reduce((s, n) => s + n[2], 0))
+export function resumoDe(r: RawMes, canc: Set<string> = new Set()): Resumo {
+  const v = validas(r.notes, canc)
+  return {
+    cnpj: r.cnpj, mes: r.mes, loja: r.loja, end: r.end, notas: v.notas.length, total: soma(v.notas),
+    canceladas: v.canceladas.length, cancelado: soma(v.canceladas), repetidas: v.repetidas.length, repetido: soma(v.repetidas),
+  }
+}
 
 export function calcLacunas(notes: RawNote[]) {
   const ser: Record<string, Set<number>> = {}
@@ -107,8 +159,9 @@ export interface Lojas { lojas: Loja[]; importadas: number; pendentes: Pendente[
 export async function montarLojas(): Promise<Lojas> {
   if (remoto) {
     const rem = await resumoRemoto()
+    const noBanco = (r?: Resumo) => r ? r.notas + (r.canceladas || 0) + (r.repetidas || 0) : 0
     const pendentes = STATIC.flatMap(l => l.meses
-      .filter(m => (rem.find(r => r.cnpj === l.cnpj && r.mes === m.mes)?.notas || 0) < m.notas)
+      .filter(m => noBanco(rem.find(r => r.cnpj === l.cnpj && r.mes === m.mes)) < m.notas)
       .map(m => ({ cnpj: l.cnpj, mes: m.mes, loja: l.loja, notas: m.notas })))
     const { data: ap } = await sb!.from('nfce_lojas').select('cnpj,apelido')  // sem a migração 003: sem apelidos
     const apelidos = new Map((ap || []).map(a => [a.cnpj as string, (a.apelido as string) || '']))
@@ -116,7 +169,8 @@ export async function montarLojas(): Promise<Lojas> {
   }
   // Sem banco central: junta o que foi publicado (dados/) com o que foi importado neste navegador
   let imp: Resumo[] = []
-  try { imp = (await DB.all<RawMes>('mes')).map(resumoDe) } catch { /* sem base local */ }
+  const canc = await canceladasLocais()
+  try { imp = (await DB.all<RawMes>('mes')).map(r => resumoDe(r, canc)) } catch { /* sem base local */ }
   return { lojas: agrupar(STATIC, imp), importadas: imp.reduce((s, r) => s + r.notas, 0), pendentes: [] }
 }
 
@@ -129,7 +183,8 @@ function agrupar(estatico: Pick<Loja, 'cnpj' | 'loja' | 'end' | 'meses'>[], imp:
     if (i >= 0) L.meses[i] = m; else L.meses.push(m)
   }
   estatico.forEach(l => l.meses.forEach(m => add(l.cnpj, l.loja, l.end, m)))
-  imp.forEach(r => add(r.cnpj, r.loja, r.end, { mes: r.mes, notas: r.notas, total: r.total }))
+  imp.forEach(r => add(r.cnpj, r.loja, r.end, { mes: r.mes, notas: r.notas, total: r.total, canceladas: r.canceladas || 0, cancelado: r.cancelado || 0,
+    repetidas: r.repetidas || 0, repetido: r.repetido || 0 }))
   const lojas = [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome))
   lojas.forEach(l => l.meses.sort((a, b) => a.mes.localeCompare(b.mes)))
   return lojas

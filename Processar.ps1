@@ -106,8 +106,10 @@ function Processar-Linha($p, [bool]$fimDeFila) {
     $ch = $p[0]; $cnpj = $p[1]
     $alvo = Join-Path (Join-Path (Join-Path $pastaXml (Nome-Pasta $p[3] $cnpj)) $p[2]) "$ch-procNFe.xml"
     if (Test-Path -LiteralPath $alvo) { $cont.Existentes++; return }
+    if (-not $p[$p.Count - 1]) { throw 'XML vazio no banco (a nota existe no FiscalGateway, mas a coluna do XML veio sem conteúdo)' }
     [byte[]]$bytes = [Convert]::FromBase64String($p[$p.Count - 1])
-    if ($p[4] -eq 'gzip') { $bytes = Expand-Gzip $bytes }
+    # xml_proc_algo vem 'gzip' (procNFe) ou 'gzipenv' (enviNFe): decide pelo conteúdo, não pelo nome
+    if ($bytes.Length -ge 2 -and $bytes[0] -eq 0x1f -and $bytes[1] -eq 0x8b) { $bytes = Expand-Gzip $bytes }
     $texto = $UTF8.GetString($bytes)
     if ($texto -notmatch [regex]::Escape("NFe$ch")) { throw 'chave do XML não confere' }
     $fim = $texto.TrimEnd()

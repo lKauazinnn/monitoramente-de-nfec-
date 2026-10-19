@@ -1,17 +1,21 @@
 import { ArrowUpRight, Receipt, Store, Ticket, Wallet } from 'lucide-react'
-import type { Loja } from '../lib/data'
+import type { Loja, LojaMes } from '../lib/data'
 import { brl, brl0, cidade, fmtCnpj, kf, mesCurto, mesLabel, nf, pct } from '../lib/format'
 import { Barras } from './charts'
 import { Card, CardHeader, Kpi } from './ui'
 
 export function Overview({ lojas, mes, setMes, abrirLoja }: { lojas: Loja[]; mes: string; setMes: (m: string) => void; abrirLoja: (cnpj: string) => void }) {
   const meses = [...new Set(lojas.flatMap(l => l.meses.map(m => m.mes)))].sort()
-  const val = (l: Loja, m: string) => l.meses.find(x => x.mes === m) || { total: 0, notas: 0 }
+  const val = (l: Loja, m: string): LojaMes => l.meses.find(x => x.mes === m) || { mes: m, total: 0, notas: 0 }
   const lin = lojas.map(l => {
     const ms = mes ? [val(l, mes)] : l.meses
-    return { l, total: ms.reduce((s, x) => s + x.total, 0), notas: ms.reduce((s, x) => s + x.notas, 0) }
+    return { l, total: ms.reduce((s, x) => s + x.total, 0), notas: ms.reduce((s, x) => s + x.notas, 0),
+      canc: ms.reduce((s, x) => s + (x.canceladas || 0), 0), rep: ms.reduce((s, x) => s + (x.repetidas || 0), 0),
+      fora: ms.reduce((s, x) => s + (x.cancelado || 0) + (x.repetido || 0), 0) }
   }).sort((a, b) => b.total - a.total)
   const T = lin.reduce((s, x) => s + x.total, 0), N = lin.reduce((s, x) => s + x.notas, 0)
+  const C = lin.reduce((s, x) => s + x.canc, 0), R = lin.reduce((s, x) => s + x.rep, 0), VF = lin.reduce((s, x) => s + x.fora, 0)
+  const foraTxt = [C && `${nf.format(C)} canceladas`, R && `${nf.format(R)} repetidas`].filter(Boolean).join(' e ')
   const porMes = meses.map(m => {
     const v = lojas.reduce((s, l) => s + val(l, m).total, 0), n = lojas.reduce((s, l) => s + val(l, m).notas, 0)
     return { key: m, label: mesCurto(m), value: v, tip: <><b>{mesLabel(m)}</b><div className="num">{brl.format(v)}</div><div className="text-muted">{nf.format(n)} notas</div></> }
@@ -23,8 +27,8 @@ export function Overview({ lojas, mes, setMes, abrirLoja }: { lojas: Loja[]; mes
   return (
     <div className="anim-entrar flex flex-col gap-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Faturamento" value={brl.format(T)} sub={periodo} icon={<Wallet className="size-4" />} tone="accent" />
-        <Kpi label="Notas autorizadas" value={nf.format(N)} sub={`${lojas.length} ${lojas.length === 1 ? 'loja' : 'lojas'}`} icon={<Receipt className="size-4" />} />
+        <Kpi label="Faturamento" value={brl.format(T)} sub={foraTxt ? `${periodo} · sem ${brl.format(VF)} de canceladas/repetidas` : periodo} icon={<Wallet className="size-4" />} tone="accent" />
+        <Kpi label="Notas autorizadas" value={nf.format(N)} sub={`${lojas.length} ${lojas.length === 1 ? 'loja' : 'lojas'}${foraTxt ? ` · ${foraTxt} fora do total` : ''}`} icon={<Receipt className="size-4" />} />
         <Kpi label="Ticket médio" value={brl.format(N ? T / N : 0)} sub="todas as lojas" icon={<Ticket className="size-4" />} />
         <Kpi label="Maior loja" value={lin[0]?.l.nome || '—'} sub={lin[0] ? pct(lin[0].total / (T || 1)) + ' do faturamento' : ''} icon={<Store className="size-4" />} />
       </div>
