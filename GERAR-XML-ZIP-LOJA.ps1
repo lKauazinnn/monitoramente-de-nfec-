@@ -10,6 +10,11 @@
 #   powershell -ExecutionPolicy Bypass -File C:\Temp\GERAR-XML-ZIP-LOJA.ps1
 #   (tenta login do Windows no SQL; se nao der, pede a senha do sa)
 #   Instancia nomeada: -Servidor ".\SQLEXPRESS"   Pasta extra: -Pastas 'C:\ACOM','D:\XML'
+#
+# Envio automatico para o Google Drive (opcional):
+#   -DriveToken 'ya29...'  access token com escopo https://www.googleapis.com/auth/drive (OAuth Playground, vale 1 h)
+#   -DrivePasta '<id ou link da pasta>'
+#   Se o envio falhar, o ZIP continua em C:\Temp para subir na mao.
 
 param(
     [string]$Servidor = 'localhost',
@@ -19,10 +24,14 @@ param(
     [string]$Ini = '20240101',   # inclusive
     [string]$Fim = '20270101',   # exclusive
     [string[]]$Pastas = @('C:\ACOM', 'C:\ACOM NFCE', 'C:\NCR Solution', 'C:\sistema colibri'),
-    [string]$Destino = 'C:\Temp'
+    [string]$Destino = 'C:\Temp',
+    [string]$DriveToken = '',
+    [string]$DrivePasta = '',
+    [string]$DriveApi = 'https://www.googleapis.com'
 )
 
 $ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $dtIni = [datetime]::ParseExact($Ini, 'yyyyMMdd', $null)
 $dtFim = [datetime]::ParseExact($Fim, 'yyyyMMdd', $null)
@@ -48,6 +57,42 @@ function Expand-Gzip([byte[]]$bytes) {
 
 function Add-Mes([hashtable]$h, [string]$mes) {
     if ($h.ContainsKey($mes)) { $h[$mes]++ } else { $h[$mes] = 1 }
+}
+
+# Upload resumable da API do Drive: abre a sessao (POST com os metadados) e manda o arquivo inteiro (PUT)
+function Send-Drive([string]$arquivo) {
+    $idPasta = $DrivePasta
+    $m = [regex]::Match($DrivePasta, 'folders/([\w-]+)')
+    if ($m.Success) { $idPasta = $m.Groups[1].Value }
+    $tam = (Get-Item $arquivo).Length
+    $meta = [Text.Encoding]::UTF8.GetBytes('{"name":' + (ConvertTo-Json ([IO.Path]::GetFileName($arquivo))) + ',"parents":["' + $idPasta + '"]}')
+
+    $req = [Net.HttpWebRequest]::Create("$DriveApi/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true")
+    $req.Method = 'POST'
+    $req.Headers.Add('Authorization', "Bearer $DriveToken")
+    $req.Headers.Add('X-Upload-Content-Type', 'application/zip')
+    $req.Headers.Add('X-Upload-Content-Length', "$tam")
+    $req.ContentType = 'application/json; charset=UTF-8'
+    $req.ContentLength = $meta.Length
+    $s = $req.GetRequestStream(); $s.Write($meta, 0, $meta.Length); $s.Close()
+    $resp = $req.GetResponse(); $sessao = $resp.Headers['Location']; $resp.Close()
+
+    $put = [Net.HttpWebRequest]::Create($sessao)
+    $put.Method = 'PUT'
+    $put.Headers.Add('Authorization', "Bearer $DriveToken")
+    $put.ContentType = 'application/zip'
+    $put.ContentLength = $tam
+    $put.AllowWriteStreamBuffering = $false
+    $put.Timeout = [Threading.Timeout]::Infinite
+    $fs = [IO.File]::OpenRead($arquivo); $rs = $put.GetRequestStream()
+    $buf = New-Object byte[] (4MB); $enviado = 0; $aviso = 0
+    while (($n = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
+        $rs.Write($buf, 0, $n); $enviado += $n
+        if ($enviado -ge $aviso) { Write-Host ("  enviado {0:N0} de {1:N0} MB" -f ($enviado / 1MB), ($tam / 1MB)); $aviso += 25MB }
+    }
+    $rs.Close(); $fs.Close()
+    $r2 = $put.GetResponse(); $txt = (New-Object IO.StreamReader($r2.GetResponseStream())).ReadToEnd(); $r2.Close()
+    return $txt
 }
 
 # ---------- Conexao ----------
@@ -217,4 +262,20 @@ $linhas | Format-Table -AutoSize | Out-Host
 Write-Host "Do banco: $doBanco   Das pastas: $daPasta   Canceladas fora: $excluidas   Sem autorizacao: $semAutorizacao"
 Write-Host "TOTAL NO ZIP: $totZip   ESPERADO: $totEsp   FALTANDO: $totFalta"
 Write-Host ("ZIP: $zip  ({0:N0} MB)" -f ((Get-Item $zip).Length / 1MB))
+
+if ($DriveToken -and $DrivePasta) {
+    Write-Host ''
+    Write-Host 'Enviando para o Google Drive...'
+    try {
+        $ret = Send-Drive $zip
+        Write-Host "ENVIADO PARA O DRIVE: $([IO.Path]::GetFileName($zip))  $ret"
+    }
+    catch {
+        $msg = $_.Exception.Message
+        $we = $_.Exception.InnerException
+        if ($we -is [Net.WebException] -and $we.Response) { $msg += ' ' + (New-Object IO.StreamReader($we.Response.GetResponseStream())).ReadToEnd() }
+        Write-Host "FALHOU O ENVIO PARA O DRIVE: $msg" -ForegroundColor Red
+        Write-Host "O ZIP continua em $zip - suba na mao." -ForegroundColor Red
+    }
+}
 Write-Host ("Tempo: {0:mm\:ss}" -f ((Get-Date) - $inicio))
