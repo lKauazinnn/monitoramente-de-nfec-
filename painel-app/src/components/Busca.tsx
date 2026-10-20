@@ -8,13 +8,14 @@ import { useToast } from './Toast'
 import { Badge, Button, Card, Empty, Segmented, Select, cx } from './ui'
 
 const POR_PAGINA = 50
-const LIMITE = { xml: 20000, pdf: 500, csv: 100000 }
+const LIMITE = { xml: 150000, pdf: 500, csv: 100000 }   // XML acima de 20 mil sai em vários ZIPs (um por mês)
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const campo = 'h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm outline-none placeholder:text-subtle focus:border-accent'
 
 // Período escolhido no seletor -> datas
 function datas(p: string, de: string, ate: string): [string, string] {
   if (p.startsWith('m:')) return [p.slice(2) + '-01', p.slice(2) + '-31']
+  if (p.startsWith('a:')) return [p.slice(2) + '-01-01', p.slice(2) + '-12-31']
   const h = new Date(), menos = (n: number) => { const x = new Date(h); x.setDate(x.getDate() - n); return iso(x) }
   if (p === 'hoje') return [iso(h), iso(h)]
   if (p === '7') return [menos(6), iso(h)]
@@ -34,6 +35,7 @@ function termo(t: string): Pick<Filtros, 'numero' | 'chave' | 'produto'> {
 export function Busca({ lojas }: { lojas: Loja[] }) {
   const toast = useToast()
   const meses = useMemo(() => [...new Set(lojas.flatMap(l => l.meses.map(m => m.mes)))].sort().reverse(), [lojas])
+  const anos = useMemo(() => [...new Set(meses.map(m => m.slice(0, 4)))], [meses])
   const [texto, setTexto] = useState('')
   const [loja, setLoja] = useState('')
   const [periodo, setPeriodo] = useState(meses[0] ? 'm:' + meses[0] : 'tudo')
@@ -121,7 +123,8 @@ export function Busca({ lojas }: { lojas: Loja[] }) {
           {lojas.map(l => <option key={l.cnpj} value={l.cnpj}>{l.nome}</option>)}
         </Select>
         <Select value={periodo} onChange={e => setPeriodo(e.target.value)} className="w-full sm:w-52" aria-label="Período">
-          {meses.map(m => <option key={m} value={'m:' + m}>{mesLabel(m)}</option>)}
+          <optgroup label="Mês">{meses.map(m => <option key={m} value={'m:' + m}>{mesLabel(m)}</option>)}</optgroup>
+          <optgroup label="Ano inteiro">{anos.map(a => <option key={a} value={'a:' + a}>{a} inteiro</option>)}</optgroup>
           <option value="hoje">Hoje</option>
           <option value="7">Últimos 7 dias</option>
           <option value="30">Últimos 30 dias</option>

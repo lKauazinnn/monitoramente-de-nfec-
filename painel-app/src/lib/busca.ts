@@ -96,20 +96,39 @@ const carregarZip = () => jszip ||= new Promise((res, rej) => {
   document.head.appendChild(s)
 })
 
+// Até 20 mil notas: um ZIP só. Acima disso: um ZIP por mês (e em partes, se o mês passar de 20 mil),
+// para não estourar a memória do navegador com um ano inteiro de XMLs
+const LOTE_ZIP = 20000
+function lotesZip(notas: NotaBusca[]): [string, NotaBusca[]][] {
+  if (notas.length <= LOTE_ZIP) return [['', notas]]
+  const porMes = new Map<string, NotaBusca[]>()
+  for (const n of notas) { const l = porMes.get(n.mes); if (l) l.push(n); else porMes.set(n.mes, [n]) }
+  const lotes: [string, NotaBusca[]][] = []
+  for (const [mes, l] of [...porMes].sort(([a], [b]) => a.localeCompare(b)))
+    for (let i = 0; i < l.length; i += LOTE_ZIP) lotes.push([mes + (l.length > LOTE_ZIP ? `-parte${i / LOTE_ZIP + 1}` : ''), l.slice(i, i + LOTE_ZIP)])
+  return lotes
+}
+
 export async function baixarXmlsZip(notas: NotaBusca[], nomeLoja: (cnpj: string) => string, progresso: (m: string) => void) {
   await carregarZip()
-  const xmls = await xmlsDe(notas.map(n => n.chave), k => progresso(`Buscando XMLs… ${k.toLocaleString('pt-BR')} de ${notas.length.toLocaleString('pt-BR')}`))
-  progresso('Compactando…')
-  const zip = new (window as unknown as { JSZip: new () => any }).JSZip()
-  const faltando: string[] = []
-  for (const n of notas) {
-    const x = xmls.get(n.chave)
-    if (x) zip.file(`${nomeLoja(n.cnpj).replace(/[\\/:*?"<>|]/g, '_')}/${n.mes}/${n.chave}-procNFe.xml`, x)
-    else faltando.push(`${n.chave}  nº ${n.n}  ${n.dh}`)
+  const lotes = lotesZip(notas), stamp = carimbo()
+  let semXml = 0
+  for (const [k, [rotulo, lote]] of lotes.entries()) {
+    const pre = lotes.length > 1 ? `ZIP ${k + 1} de ${lotes.length} (${rotulo}) · ` : ''
+    const xmls = await xmlsDe(lote.map(n => n.chave), i => progresso(`${pre}Buscando XMLs… ${i.toLocaleString('pt-BR')} de ${lote.length.toLocaleString('pt-BR')}`))
+    progresso(pre + 'Compactando…')
+    const zip = new (window as unknown as { JSZip: new () => any }).JSZip()
+    const faltando: string[] = []
+    for (const n of lote) {
+      const x = xmls.get(n.chave)
+      if (x) zip.file(`${nomeLoja(n.cnpj).replace(/[\\/:*?"<>|]/g, '_')}/${n.mes}/${n.chave}-procNFe.xml`, x)
+      else faltando.push(`${n.chave}  nº ${n.n}  ${n.dh}`)
+    }
+    if (faltando.length) zip.file('notas-sem-xml.txt', 'Estas notas não têm XML no banco (importe o CSV do SSMS do período):\r\n\r\n' + faltando.join('\r\n'))
+    baixar(`xmls-${rotulo ? rotulo + '-' : ''}${stamp}.zip`, await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }))
+    semXml += faltando.length
   }
-  if (faltando.length) zip.file('notas-sem-xml.txt', 'Estas notas não têm XML no banco (importe o CSV do SSMS do período):\r\n\r\n' + faltando.join('\r\n'))
-  baixar(`xmls-${carimbo()}.zip`, await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }))
-  return { comXml: notas.length - faltando.length, semXml: faltando.length }
+  return { comXml: notas.length - semXml, semXml }
 }
 
 export async function baixarPdfs(notas: NotaBusca[], progresso: (m: string) => void) {
