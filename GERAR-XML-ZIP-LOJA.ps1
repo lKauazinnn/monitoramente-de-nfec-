@@ -15,6 +15,9 @@
 #   -DriveToken 'ya29...'  access token com escopo https://www.googleapis.com/auth/drive (OAuth Playground, vale 1 h)
 #   -DrivePasta '<id ou link da pasta>'
 #   Se o envio falhar, o ZIP continua em C:\Temp para subir na mao.
+#
+# Sem token: -AbrirDrive '<link da pasta>' abre a pasta no navegador e o Explorer com o ZIP selecionado,
+#   e e so arrastar o ZIP para a pagina do Drive.
 
 param(
     [string]$Servidor = 'localhost',
@@ -27,7 +30,8 @@ param(
     [string]$Destino = 'C:\Temp',
     [string]$DriveToken = '',
     [string]$DrivePasta = '',
-    [string]$DriveApi = 'https://www.googleapis.com'
+    [string]$DriveApi = 'https://www.googleapis.com',
+    [string]$AbrirDrive = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -279,3 +283,9 @@ if ($DriveToken -and $DrivePasta) {
     }
 }
 Write-Host ("Tempo: {0:mm\:ss}" -f ((Get-Date) - $inicio))
+
+if ($AbrirDrive) {
+    Write-Host 'Abrindo a pasta do Drive e o ZIP: arraste o ZIP para a pagina do Drive.' -ForegroundColor Green
+    Start-Process $AbrirDrive
+    Start-Process explorer.exe "/select,`"$zip`""
+}
